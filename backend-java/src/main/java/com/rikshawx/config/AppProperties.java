@@ -1,0 +1,46 @@
+package com.rikshawx.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "rikshawx")
+public class AppProperties {
+  private String jwtSecret = "aviator_super_secret_jwt_key_2026";
+  private int jwtDays = 7;
+  private String storePath = "../backend/data/store.json";
+  private String socketHost = "0.0.0.0";
+  private int socketPort = 5001;
+  private final Provider provider = new Provider();
+
+  public String getJwtSecret() { return jwtSecret; }
+  public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
+  public int getJwtDays() { return jwtDays; }
+  public void setJwtDays(int jwtDays) { this.jwtDays = jwtDays; }
+  public String getStorePath() { return storePath; }
+  public void setStorePath(String storePath) { this.storePath = storePath; }
+  public String getSocketHost() { return socketHost; }
+  public void setSocketHost(String socketHost) { this.socketHost = socketHost; }
+  public int getSocketPort() { return socketPort; }
+  public void setSocketPort(int socketPort) { this.socketPort = socketPort; }
+  public Provider getProvider() { return provider; }
+
+  public static class Provider {
+    /** When true, bets debit/credit via Provider Game SDK instead of local wallet. */
+    private boolean enabled = false;
+    private String apiUrl = "https://api.dpbossking.com/api/v1";
+    private String apiKey = "";
+    private String tableId = "rikshawx_main";
+    /** Must match admin panel game `code` / launch `gameCode`. */
+    private String gameCode = "RIKSHAWX";
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public String getApiUrl() { return apiUrl; }
+    public void setApiUrl(String apiUrl) { this.apiUrl = apiUrl; }
+    public String getApiKey() { return apiKey; }
+    public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public String getTableId() { return tableId; }
+    public void setTableId(String tableId) { this.tableId = tableId; }
+    public String getGameCode() { return gameCode; }
+    public void setGameCode(String gameCode) { this.gameCode = gameCode; }
+  }
+}

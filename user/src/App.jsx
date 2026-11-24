@@ -1,0 +1,483 @@
+import React, { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
+import TopGunHeader from './components/TopGunHeader';
+import RikshaCanvas from './components/RikshaCanvas';
+import TopGunBetConsole from './components/TopGunBetConsole';
+import TopGunPlayersList from './components/TopGunPlayersList';
+import Top20Modal from './components/Top20Modal';
+import RikshaMenuModal from './components/RikshaMenuModal';
+import WalletModal from './components/WalletModal';
+import ProvablyFairModal from './components/ProvablyFairModal';
+import HowToPlayModal from './components/HowToPlayModal';
+import AuthModal from './components/AuthModal';
+import { sound } from './soundEngine';
+import {
+  initProviderSession,
+  getSessionToken,
+  notifyRoundCreated,
+  notifyRoundStarted,
+  notifyRoundEnded
+} from './providerSdk';
+import SessionGate from './components/SessionGate';
+import './App.css';
+
+const API_BASE = 'http://localhost:5000';
+const SOCKET_SERVER = 'http://localhost:5001';
+
+export default function App() {
+  const [socket, setSocket] = useState(null);
+  const [bootState, setBootState] = useState('loading'); // loading | ready | blocked
+  const [sessionError, setSessionError] = useState(null);
+  const [providerMode, setProviderMode] = useState(false);
+  const [user, setUser] = useState({
+    id: 1,
+    username: 'TopGunPilot',
+    email: 'pilot@topgun.local',
+    balance: 5895.75,
+    role: 'player'
+  });
+  const [token, setToken] = useState('demo_token');
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vehicle, setVehicle] = useState('bike'); // Royal Enfield rider matching master design
+
+  // Engine state
+  const [gameState, setGameState] = useState('WAITING'); // WAITING, FLYING, CRASHED
+  const [multiplier, setMultiplier] = useState(1.00);
+  const [roundNumber, setRoundNumber] = useState(1001);
+  const [countdownProgress, setCountdownProgress] = useState(1);
+  const [recentHistory, setRecentHistory] = useState([]);
+  const [allBets, setAllBets] = useState([]);
+  const [topWins, setTopWins] = useState([]);
+
+  // Active bets per panel (key: panelId -> bet object)
+  const [activeBets, setActiveBets] = useState({});
+  const [bet2Collapsed, setBet2Collapsed] = useState(false);
+
+  // Modals
+  const [showTop20, setShowTop20] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
+  const [showProvablyFair, setShowProvablyFair] = useState(false);
+  const [selectedRoundForVerify, setSelectedRoundForVerify] = useState(null);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+
+  // Phase 3 boot: validate sessionToken from launchUrl (or local demo if absent)
+  useEffect(() => {
+    const savedToken = localStorage.getItem('aviator_token');
+    const savedUser = localStorage.getItem('aviator_user');
+    if (savedToken && savedUser) {
+      setToken(savedToken);
+      setUser(JSON.parse(savedUser));
+    }
+
+    initProviderSession().then(async (result) => {
+      if (result.mode === 'error') {
+        setSessionError(result.error);
+        setBootState('blocked');
+        return;
+      }
+
+      if (result.mode === 'provider') {
+        const session = result.session;
+        setProviderMode(true);
+        // Use validate response only — never trust operatorId/playerId from URL
+        setUser((prev) => ({
+          ...(prev || {}),
+          id: prev?.id || 1,
+          username: session.playerUsername || session.playerId || 'ProviderPlayer',
+          providerPlayerId: session.playerId,
+          operatorId: session.operatorId,
+          currency: session.currency,
+          language: session.language,
+          timezone: session.timezone,
+          gameCode: session.gameCode
+        }));
+        try {
+          const res = await fetch(`${API_BASE}/api/provider/balance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionToken: getSessionToken() })
+          });
+          const data = await res.json();
+          if (data.success && data.balance != null) {
+            setUser((prev) => (prev ? { ...prev, balance: data.balance } : prev));
+          }
+        } catch {
+          /* game-server provider wallet may be off in local dev */
+        }
+      }
+
+      setBootState('ready');
+    });
+  }, []);
+
+  const handleLoginSuccess = (userData, userToken) => {
+    setUser(userData);
+    setToken(userToken);
+    localStorage.setItem('aviator_token', userToken);
+    localStorage.setItem('aviator_user', JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('aviator_token');
+    localStorage.removeItem('aviator_user');
+    setUser(null);
+    setToken(null);
+    setActiveBets({});
+  };
+
+  // Socket Connection & Real-time Event Handlers
+  useEffect(() => {
+    const s = io(SOCKET_SERVER, {
+      transports: ['websocket', 'polling']
+    });
+
+    s.on('connect', () => {
+      s.emit('game:init', { userId: user ? user.id : null });
+    });
+
+    s.on('game:snapshot', (data) => {
+      setGameState(data.state);
+      setMultiplier(data.currentMultiplier || 1.00);
+      setRoundNumber(data.roundNumber);
+      setRecentHistory(data.recentHistory || []);
+      setAllBets(data.allBets || []);
+
+      if (data.myActiveBets && data.myActiveBets.length > 0) {
+        const map = {};
+        data.myActiveBets.forEach(b => { map[b.panelId] = b; });
+        setActiveBets(map);
+      }
+    });
+
+    s.on('round:preparing', (data) => {
+      setGameState('WAITING');
+      setMultiplier(1.00);
+      setRoundNumber(data.roundNumber);
+      setAllBets(data.activeBets || []);
+      setActiveBets({});
+      setCountdownProgress(1);
+      notifyRoundCreated(data.roundNumber);
+    });
+
+    s.on('round:countdown_tick', (data) => {
+      setCountdownProgress(parseFloat(data.progress));
+      if (parseFloat(data.progress) < 0.2) {
+        sound.playCountdownTick();
+      }
+    });
+
+    s.on('round:started', (data) => {
+      setGameState('FLYING');
+      setRoundNumber(data.roundNumber);
+      sound.startFlightSound();
+      notifyRoundStarted(data.roundNumber, { multiplierStart: 1 });
+    });
+
+    s.on('round:tick', (data) => {
+      setMultiplier(data.multiplier);
+      sound.updateFlightPitch(data.multiplier);
+    });
+
+    s.on('round:cashout', (data) => {
+      setAllBets(prev => prev.map(b => b.id === data.betId ? {
+        ...b,
+        status: 'cashed_out',
+        cashoutMultiplier: data.multiplier,
+        winAmount: data.winAmount
+      } : b));
+
+      if (user && data.userId === user.id) {
+        sound.playCashout();
+        setActiveBets(prev => {
+          const next = { ...prev };
+          for (const pid of [1, 2]) {
+            if (next[pid] && next[pid].id === data.betId) {
+              next[pid] = {
+                ...next[pid],
+                status: 'cashed_out',
+                cashoutMultiplier: data.multiplier,
+                winAmount: data.winAmount
+              };
+            }
+          }
+          return next;
+        });
+      }
+    });
+
+    s.on('round:crashed', (data) => {
+      setGameState('CRASHED');
+      setMultiplier(data.finalMultiplier);
+      sound.playCrash();
+      notifyRoundEnded(data.roundNumber, {
+        result: 'CRASH',
+        finalMultiplier: data.finalMultiplier
+      });
+
+      const newRound = {
+        round_number: data.roundNumber,
+        crash_multiplier: data.finalMultiplier,
+        server_seed: data.serverSeed,
+        client_seed: data.clientSeed,
+        nonce: data.nonce,
+        hash: data.hash,
+        seed_hash: data.publicHash,
+        publicHash: data.publicHash,
+        chain_hash: data.chainHash,
+        prev_chain_hash: data.prevChainHash
+      };
+
+      setRecentHistory(prev => [...prev.slice(-35), newRound]);
+
+      setActiveBets(prev => {
+        const next = { ...prev };
+        for (const pid in next) {
+          if (next[pid].status === 'active') {
+            next[pid].status = 'lost';
+          }
+        }
+        return next;
+      });
+    });
+
+    s.on('round:new_bet', (data) => {
+      setAllBets(prev => [data.bet, ...prev]);
+    });
+
+    s.on('wallet:updated', (data) => {
+      setUser(prev => prev ? { ...prev, balance: data.balance } : null);
+    });
+
+    setSocket(s);
+
+    return () => {
+      s.disconnect();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/game/leaderboard`)
+      .then(res => res.json())
+      .then(d => { if (d.topWins) setTopWins(d.topWins); })
+      .catch(() => { });
+  }, [gameState]);
+
+  // Betting Actions
+  const handlePlaceBet = (panelId, amount, autoCashout) => {
+    if (!socket || !user) {
+      setShowAuth(true);
+      return;
+    }
+
+    socket.emit('bet:place', {
+      userId: user.id,
+      panelId,
+      amount,
+      autoCashout,
+      sessionToken: getSessionToken()
+    }, (res) => {
+      if (res && res.success) {
+        setActiveBets(prev => ({
+          ...prev,
+          [panelId]: {
+            id: res.betId,
+            userId: user.id,
+            panelId,
+            betAmount: amount,
+            autoCashout,
+            status: 'active'
+          }
+        }));
+        if (res.newBalance != null) {
+          setUser(prev => ({ ...prev, balance: res.newBalance }));
+        }
+      } else {
+        alert(res?.message || 'Failed to place bet');
+      }
+    });
+  };
+
+  const handleCancelBet = (panelId) => {
+    if (!socket || !user) return;
+    socket.emit('bet:cancel', {
+      userId: user.id,
+      panelId,
+      sessionToken: getSessionToken()
+    }, (res) => {
+      if (res && res.success) {
+        setActiveBets(prev => {
+          const next = { ...prev };
+          delete next[panelId];
+          return next;
+        });
+        if (res.newBalance != null) {
+          setUser(prev => ({ ...prev, balance: res.newBalance }));
+        }
+      }
+    });
+  };
+
+  const handleCashout = (panelId) => {
+    if (!socket || !user) return;
+    socket.emit('bet:cashout', {
+      userId: user.id,
+      panelId,
+      sessionToken: getSessionToken()
+    });
+  };
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    sound.toggle(next);
+  };
+
+  if (bootState === 'loading') {
+    return (
+      <div className="min-h-dvh bg-[#050b14] text-gray-400 flex items-center justify-center text-sm tracking-wide">
+        Starting session…
+      </div>
+    );
+  }
+
+  if (bootState === 'blocked') {
+    return <SessionGate message={sessionError} />;
+  }
+
+  return (
+    <div className="h-dvh max-h-dvh bg-[#050b14] text-gray-100 flex flex-col font-sans select-none antialiased relative safe-area overflow-hidden">
+      {providerMode && (
+        <div className="absolute top-2 right-2 z-50 text-[10px] uppercase tracking-widest text-emerald-400/80 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-0.5">
+          Provider
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/[0.03] to-transparent z-0" />
+
+      <TopGunHeader
+        history={recentHistory}
+        username={user?.username || 'TopGunPilot'}
+        balance={user ? user.balance : 5895.75}
+        onOpenWallet={() => setShowWallet(true)}
+        onSelectRound={(round) => {
+          setSelectedRoundForVerify(round);
+          setShowProvablyFair(true);
+        }}
+        onOpenProfile={() => setShowMenu(true)}
+      />
+
+      {/* Mobile: this pane scrolls. Desktop: no page scroll, side layout */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y md:overflow-hidden md:flex md:flex-row p-1.5 sm:p-2 md:p-3 gap-1.5 md:gap-3 z-10">
+        <div className="flex flex-col gap-1.5 md:gap-3 min-w-0 md:flex-1 md:min-h-0 md:overflow-hidden md:h-full">
+          {/* Stage ~16:9 on mobile like Aviator */}
+          <div className="w-full aspect-[16/9] md:aspect-auto md:h-auto md:min-h-0 md:flex-1 overflow-hidden shrink-0 rounded-lg md:rounded-xl">
+            <RikshaCanvas
+              state={gameState}
+              multiplier={multiplier}
+              countdownProgress={countdownProgress}
+              vehicle={vehicle}
+              onToggleSound={toggleSound}
+              soundEnabled={soundEnabled}
+              onOpenMenu={() => setShowMenu(true)}
+            />
+          </div>
+
+          {/* Stacked bet panels on mobile; side-by-side on desktop */}
+          <div className="flex flex-col md:grid md:grid-cols-2 items-stretch gap-1.5 md:gap-2 shrink-0">
+            <TopGunBetConsole
+              panelId={1}
+              gameState={gameState}
+              currentMultiplier={multiplier}
+              userBalance={user ? user.balance : 0}
+              activeBet={activeBets[1]}
+              onPlaceBet={handlePlaceBet}
+              onCancelBet={handleCancelBet}
+              onCashout={handleCashout}
+              sound={sound}
+            />
+
+            <TopGunBetConsole
+              panelId={2}
+              gameState={gameState}
+              currentMultiplier={multiplier}
+              userBalance={user ? user.balance : 0}
+              activeBet={activeBets[2]}
+              onPlaceBet={handlePlaceBet}
+              onCancelBet={handleCancelBet}
+              onCashout={handleCashout}
+              sound={sound}
+              collapsible
+              collapsed={bet2Collapsed}
+              onToggleCollapse={() => setBet2Collapsed((v) => !v)}
+            />
+          </div>
+
+          {/* Players under bets on mobile — scrolls with the pane above */}
+          <div className="md:hidden w-full h-[380px] shrink-0 pb-6">
+            <TopGunPlayersList allBets={allBets} currentUserId={user?.id} />
+          </div>
+        </div>
+
+        {/* Players sidebar on desktop */}
+        <div className="hidden md:flex w-full md:w-72 lg:w-80 xl:w-[340px] flex-col shrink-0 min-h-0 md:h-full">
+          <TopGunPlayersList allBets={allBets} currentUserId={user?.id} />
+        </div>
+      </div>
+
+      {/* Modals */}
+      {showTop20 && (
+        <Top20Modal
+          topWins={topWins}
+          onClose={() => setShowTop20(false)}
+        />
+      )}
+
+      {showMenu && (
+        <RikshaMenuModal
+          user={user}
+          soundEnabled={soundEnabled}
+          onToggleSound={toggleSound}
+          onOpenWallet={() => setShowWallet(true)}
+          onOpenProvablyFair={() => {
+            setSelectedRoundForVerify(recentHistory[recentHistory.length - 1] || null);
+            setShowProvablyFair(true);
+          }}
+          onOpenHowToPlay={() => setShowHowToPlay(true)}
+          onOpenAuth={() => setShowAuth(true)}
+          onLogout={handleLogout}
+          onClose={() => setShowMenu(false)}
+        />
+      )}
+
+      {showWallet && (
+        <WalletModal
+          balance={user ? user.balance : 0}
+          token={token}
+          onBalanceUpdated={(newBal) => setUser(prev => ({ ...prev, balance: newBal }))}
+          onClose={() => setShowWallet(false)}
+        />
+      )}
+
+      {showProvablyFair && (
+        <ProvablyFairModal
+          round={selectedRoundForVerify}
+          onClose={() => setShowProvablyFair(false)}
+        />
+      )}
+
+      {showHowToPlay && (
+        <HowToPlayModal
+          onClose={() => setShowHowToPlay(false)}
+        />
+      )}
+
+      {showAuth && (
+        <AuthModal
+          onLoginSuccess={handleLoginSuccess}
+          onClose={() => setShowAuth(false)}
+        />
+      )}
+    </div>
+  );
+}
