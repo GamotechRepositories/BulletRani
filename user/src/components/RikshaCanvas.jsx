@@ -18,6 +18,11 @@ export default function RikshaCanvas({
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const bikeImgRef = useRef(null);
+  // Keep latest props in refs so the rAF loop does NOT restart every tick
+  // (restarting was clearing canvas.width and causing flicker while flying)
+  const stateRef = useRef(state);
+  const multiplierRef = useRef(multiplier);
+  const vehicleRef = useRef(vehicle);
 
   // Parallax offsets (scrolling LEFT to create forward motion)
   const roadOffsetRef = useRef(0);
@@ -40,6 +45,10 @@ export default function RikshaCanvas({
     shards: []
   });
 
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { multiplierRef.current = multiplier; }, [multiplier]);
+  useEffect(() => { vehicleRef.current = vehicle; }, [vehicle]);
+
   // Preload bike image
   useEffect(() => {
     const img = new Image();
@@ -48,13 +57,25 @@ export default function RikshaCanvas({
       bikeImgRef.current = img;
     };
 
-    // Pre-generate stars for night ambiance
-    starsRef.current = Array.from({ length: 70 }).map(() => ({
-      x: Math.random(),
-      y: Math.random() * 0.55,
-      size: Math.random() * 2.2 + 0.5,
-      twinkle: Math.random() * Math.PI * 2
-    }));
+    // Pre-generate starfield — sparse blinkers + a few strong twinkles
+    const stars = [];
+    for (let i = 0; i < 95; i++) {
+      const blinkRoll = Math.random();
+      stars.push({
+        x: Math.random(),
+        y: Math.random() * 0.52,
+        size: Math.random() < 0.82 ? 0.55 + Math.random() * 0.7 : 1.0 + Math.random() * 1.2,
+        bright: 0.35 + Math.random() * 0.65,
+        twinkle: Math.random() * Math.PI * 2,
+        speed: 0.9 + Math.random() * 2.4,
+        glow: Math.random() > 0.9,
+        // most stars blink; ~20% strong on/off
+        blinks: blinkRoll < 0.78,
+        blinkStrong: blinkRoll < 0.2,
+        rot: Math.random() * Math.PI
+      });
+    }
+    starsRef.current = stars;
   }, []);
 
   useEffect(() => {
@@ -64,22 +85,37 @@ export default function RikshaCanvas({
 
     const handleResize = () => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
+      if (rect.width < 2 || rect.height < 2) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const nextW = Math.max(1, Math.floor(rect.width * dpr));
+      const nextH = Math.max(1, Math.floor(rect.height * dpr));
+      // Only reset buffer when size actually changes (setting width clears the canvas)
+      if (canvas.width === nextW && canvas.height === nextH) return;
+      canvas.width = nextW;
+      canvas.height = nextH;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
     handleResize();
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => handleResize())
+      : null;
+    if (ro) ro.observe(canvas.parentElement || canvas);
     window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
 
     const render = () => {
+      const state = stateRef.current;
+      const multiplier = multiplierRef.current;
       const rect = canvas.getBoundingClientRect();
       const width = rect.width;
       const height = rect.height;
+      if (width < 2 || height < 2) {
+        animFrameRef.current = requestAnimationFrame(render);
+        return;
+      }
 
-      ctx.clearRect(0, 0, width, height);
-
+      // Full-frame opaque sky fill is drawn next — skip clearRect flash
       // --- 1. DETERMINE SPEED & PROGRESSION ---
       let baseSpeed = 0;
       if (state === 'FLYING') {
@@ -107,17 +143,17 @@ export default function RikshaCanvas({
       if (!lastFrameTimeRef.current) lastFrameTimeRef.current = now;
       const dt = Math.min(0.05, (now - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = now;
-      // Full cycle ~22s while the scene is moving; pause when nearly stopped
+      // Full cycle ~40s — longer, smoother day → evening → night
       if (baseSpeed > 0.5) {
-        dayPhaseRef.current = (dayPhaseRef.current + dt / 22) % 1;
+        dayPhaseRef.current = (dayPhaseRef.current + dt / 40) % 1;
       }
       const dayCycle = getDayCycleFromPhase(dayPhaseRef.current);
 
-      // --- 2. SKY & CLOUDS ---
-      drawModernSky(ctx, width, height, skyOffsetRef.current, dayCycle);
-
-      // Scale scene for small/mobile canvases so bike & buildings don't dominate
+      // Scale scene for small/mobile canvases so bike, buildings & clouds don't dominate
       const sceneScale = Math.max(0.42, Math.min(1, Math.min(height / 420, width / 780)));
+
+      // --- 2. SKY & CLOUDS ---
+      drawModernSky(ctx, width, height, skyOffsetRef.current, dayCycle, sceneScale);
 
       // --- 3. FAR BACKGROUND ---
       drawFarSilhouettes(ctx, width, height * 0.62, dayCycle, farOffsetRef.current, sceneScale);
@@ -131,25 +167,34 @@ export default function RikshaCanvas({
       const curbH = Math.max(5, 9 * sceneScale);
       const night = dayCycle.night;
 
-      ctx.fillStyle = lerpHex('#e8b896', '#2a3142', night);
+      ctx.fillStyle = lerpHex('#b8c0c8', '#121820', night);
       ctx.fillRect(0, roadTop, width, curbH);
-      ctx.fillStyle = lerpHex('#c99572', '#1a2030', night);
+      ctx.fillStyle = lerpHex('#9aa4ae', '#0a0e14', night);
       ctx.fillRect(0, roadTop + curbH - 2, width, 2);
+      // Thin curb highlight — warm by day, cool edge at night
+      if (night > 0.35) {
+        ctx.fillStyle = `rgba(90, 120, 180, ${0.12 * night})`;
+        ctx.fillRect(0, roadTop, width, 1.5);
+      }
 
       const roadGrad = ctx.createLinearGradient(0, roadTop + curbH, 0, height);
-      roadGrad.addColorStop(0, lerpHex('#6a7588', '#252b38', night));
-      roadGrad.addColorStop(0.35, lerpHex('#555e70', '#1c2230', night));
-      roadGrad.addColorStop(1, lerpHex('#3a4250', '#12161f', night));
+      roadGrad.addColorStop(0, lerpHex('#5c6674', '#12161e', night));
+      roadGrad.addColorStop(0.35, lerpHex('#4a5360', '#0c1016', night));
+      roadGrad.addColorStop(1, lerpHex('#343c48', '#06080c', night));
       ctx.fillStyle = roadGrad;
       ctx.fillRect(0, roadTop + curbH, width, roadHeight - curbH);
 
       const edgeGrad = ctx.createLinearGradient(0, roadTop + curbH, 0, height);
       edgeGrad.addColorStop(0, 'rgba(0,0,0,0)');
-      edgeGrad.addColorStop(1, 'rgba(0,0,0,0.22)');
+      edgeGrad.addColorStop(1, `rgba(0,0,0,${0.22 + night * 0.38})`);
       ctx.fillStyle = edgeGrad;
       ctx.fillRect(0, roadTop + curbH, width, roadHeight - curbH);
 
-      ctx.fillStyle = '#ffffff';
+      // Lane dashes — fade to soft cool markers at night
+      const stripeA = 0.95 - night * 0.72;
+      ctx.fillStyle = night > 0.5
+        ? `rgba(160, 185, 230, ${stripeA})`
+        : `rgba(220, 230, 245, ${stripeA})`;
       const stripeY = roadTop + roadHeight * 0.48;
       const stripeWidth = Math.max(28, 56 * sceneScale);
       const stripeGap = Math.max(18, 32 * sceneScale);
@@ -160,6 +205,9 @@ export default function RikshaCanvas({
       for (let x = -totalStripeStep - stripeShift; x < width + totalStripeStep; x += totalStripeStep) {
         ctx.fillRect(x, stripeY, stripeWidth, stripeH);
       }
+
+      // Streetlights along the curb (glow on road, poles in front of asphalt)
+      drawStreetlights(ctx, width, roadTop, curbH, roadHeight, dayCycle, midgroundOffsetRef.current, sceneScale);
 
       // --- 6. VEHICLE (keep left like reference) ---
       let vehicleX = Math.max(70 * sceneScale, width * 0.14);
@@ -187,6 +235,38 @@ export default function RikshaCanvas({
         drawRoyalEnfield(ctx, vehicleX, vehicleY, currentMult, state, multiplier, sceneScale);
       }
 
+      // Color grades
+      if (night < 0.85) {
+        const dayKeep = Math.max(0, 1 - night) * (1 - dayCycle.golden * 0.65);
+        if (dayKeep > 0.02) {
+          const grade = ctx.createLinearGradient(0, 0, 0, height);
+          const ga = dayKeep * 0.1;
+          grade.addColorStop(0, `rgba(30, 70, 120, ${ga * 0.4})`);
+          grade.addColorStop(0.5, `rgba(20, 45, 80, ${ga * 0.12})`);
+          grade.addColorStop(1, `rgba(15, 30, 50, ${ga * 0.35})`);
+          ctx.fillStyle = grade;
+          ctx.fillRect(0, 0, width, height);
+        }
+        if (dayCycle.golden > 0.05) {
+          const warm = ctx.createLinearGradient(0, 0, 0, height);
+          const wa = dayCycle.golden * (1 - night * 0.5) * 0.22;
+          warm.addColorStop(0, `rgba(80, 40, 90, ${wa * 0.25})`);
+          warm.addColorStop(0.55, `rgba(180, 90, 50, ${wa * 0.2})`);
+          warm.addColorStop(1, `rgba(200, 100, 40, ${wa * 0.35})`);
+          ctx.fillStyle = warm;
+          ctx.fillRect(0, 0, width, height);
+        }
+      }
+      // Night mood — light vignette only (keep scene readable)
+      if (night > 0.3) {
+        const na = (night - 0.3) / 0.7;
+        const vig = ctx.createRadialGradient(width * 0.5, height * 0.38, height * 0.2, width * 0.5, height * 0.5, height * 0.95);
+        vig.addColorStop(0, 'rgba(0,0,0,0)');
+        vig.addColorStop(1, `rgba(4, 8, 16, ${0.28 * na})`);
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, 0, width, height);
+      }
+
       animFrameRef.current = requestAnimationFrame(render);
     };
 
@@ -194,9 +274,11 @@ export default function RikshaCanvas({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+      if (ro) ro.disconnect();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [state, multiplier, vehicle]);
+  }, []); // mount once — read live state/multiplier via refs (avoids flicker on every tick)
 
   const seedCrashIfNeeded = (fallbackX, fallbackY, mult, sceneScale) => {
     const crash = crashRef.current;
@@ -314,9 +396,17 @@ export default function RikshaCanvas({
     }
 
     // Tumbling bike wipeout
-    if (bikeImgRef.current && bikeImgRef.current.complete && t < 0.92) {
-      const bikeHeight = Math.max(72, 118 * sceneScale);
-      const bikeWidth = bikeHeight * (947 / 531);
+    const crashBike = bikeImgRef.current;
+    if (crashBike && crashBike.complete && crashBike.naturalWidth && t < 0.92) {
+      const aspect = crashBike.naturalWidth / crashBike.naturalHeight;
+      const maxH = Math.max(56, 100 * sceneScale);
+      const maxW = Math.max(96, 168 * sceneScale);
+      let bikeHeight = maxH;
+      let bikeWidth = bikeHeight * aspect;
+      if (bikeWidth > maxW) {
+        bikeWidth = maxW;
+        bikeHeight = bikeWidth / aspect;
+      }
       const bx = crash.x + ease * 110 * sceneScale;
       const by = crash.y - Math.sin(ease * Math.PI) * 42 * sceneScale + ease * 28 * sceneScale;
       const rot = ease * 1.85;
@@ -327,7 +417,7 @@ export default function RikshaCanvas({
       ctx.translate(bx, by - bikeHeight * 0.2);
       ctx.rotate(rot);
       ctx.drawImage(
-        bikeImgRef.current,
+        crashBike,
         -bikeWidth / 2,
         -bikeHeight / 2,
         bikeWidth,
@@ -490,24 +580,37 @@ export default function RikshaCanvas({
 
   // --- DRAW ROYAL ENFIELD BULLET 350 MOTORCYCLE ---
   const drawRoyalEnfield = (ctx, bx, by, currentMult, state, mult, sceneScale = 1) => {
-    // Smaller base size; further reduced on mobile via sceneScale
-    const bikeHeight = Math.max(72, 118 * sceneScale);
-    const bikeWidth = bikeHeight * (947 / 531);
+    const img = bikeImgRef.current;
+    if (!img || !img.complete || !img.naturalWidth) return;
+
+    // Contain within a box using the image's real aspect — never stretch
+    const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+    // Prefer width on short mobile stages so the bike doesn't look tall/skinny
+    const maxW = Math.max(110, 190 * sceneScale);
+    const maxH = Math.max(64, 112 * sceneScale);
+    let bikeWidth = maxW;
+    let bikeHeight = bikeWidth / aspect;
+    if (bikeHeight > maxH) {
+      bikeHeight = maxH;
+      bikeWidth = bikeHeight * aspect;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     const bAngle = state === 'FLYING' ? -Math.min(0.06, (mult - 1) * 0.015) : 0;
 
     ctx.save();
-    ctx.translate(bx, by - bikeHeight * 0.28);
+    ctx.translate(bx, by - bikeHeight * 0.22);
     ctx.rotate(bAngle);
 
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(0, bikeHeight * 0.46, bikeWidth * 0.38, Math.max(3, 6 * sceneScale), 0, 0, Math.PI * 2);
+    ctx.ellipse(0, bikeHeight * 0.42, bikeWidth * 0.34, Math.max(3, 5 * sceneScale), 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.40)';
     ctx.fill();
     ctx.restore();
 
     ctx.drawImage(
-      bikeImgRef.current,
+      img,
       -bikeWidth / 2,
       -bikeHeight / 2,
       bikeWidth,
@@ -517,23 +620,27 @@ export default function RikshaCanvas({
     ctx.restore();
   };
 
-  // Day → sunset → night (moon) → sunrise → day — pace is time-based, not speed-based
+  // Day → evening → night → dawn — wide overlapping S-curves for a buttery blend
   const getDayCycleFromPhase = (phase) => {
-    const night =
-      phase < 0.28 ? 0 :
-      phase < 0.38 ? smoothstep((phase - 0.28) / 0.1) :
-      phase < 0.68 ? 1 :
-      phase < 0.80 ? 1 - smoothstep((phase - 0.68) / 0.12) :
-      0;
-    const golden =
-      phase < 0.22 ? 0 :
-      phase < 0.32 ? smoothstep((phase - 0.22) / 0.1) :
-      phase < 0.40 ? 1 - smoothstep((phase - 0.32) / 0.08) :
-      phase < 0.66 ? 0 :
-      phase < 0.74 ? smoothstep((phase - 0.66) / 0.08) :
-      phase < 0.84 ? 1 - smoothstep((phase - 0.74) / 0.1) :
-      0;
-    return { phase, night, golden };
+    // Night rises slowly through evening, holds, then eases out at dawn
+    let night = 0;
+    if (phase >= 0.18 && phase < 0.42) night = smoothstep((phase - 0.18) / 0.24);
+    else if (phase >= 0.42 && phase < 0.60) night = 1;
+    else if (phase >= 0.60 && phase < 0.88) night = 1 - smoothstep((phase - 0.60) / 0.28);
+
+    // Golden hour starts in late day, peaks while night is climbing, then dissolves into night
+    let golden = 0;
+    if (phase >= 0.10 && phase < 0.22) golden = smoothstep((phase - 0.10) / 0.12);
+    else if (phase >= 0.22 && phase < 0.34) golden = 1;
+    else if (phase >= 0.34 && phase < 0.48) golden = 1 - smoothstep((phase - 0.34) / 0.14);
+    // Dawn glow
+    else if (phase >= 0.60 && phase < 0.74) golden = smoothstep((phase - 0.60) / 0.14);
+    else if (phase >= 0.74 && phase < 0.90) golden = 1 - smoothstep((phase - 0.74) / 0.16);
+
+    // How “daytime bright” the street still feels (for facades / palms)
+    const dayLite = Math.max(0, 1 - night) * (1 - golden * 0.25);
+
+    return { phase, night, golden, dayLite };
   };
 
   const smoothstep = (t) => {
@@ -578,50 +685,121 @@ export default function RikshaCanvas({
     };
   };
 
-  const drawModernSky = (ctx, width, height, offset, cycle) => {
+  const drawModernSky = (ctx, width, height, offset, cycle, sceneScale = 1) => {
     const skyHeight = height * 0.72;
     const { night, golden } = cycle;
 
-    const dayTop = '#6eb4cc';
-    const dayMid = '#9ecfe0';
-    const daySoft = '#d9e8ef';
-    const dayWarm = '#f7d4b4';
-    const dayHorizon = '#f5b888';
+    // Bright day blues → soft evening → deep night (all via continuous lerp)
+    const dayTop = '#2a6cb0';
+    const dayMid = '#4a92c8';
+    const daySoft = '#6eb0d8';
+    const dayWarm = '#9ecae4';
+    const dayHorizon = '#c5dcec';
 
-    const nightTop = '#0b1020';
-    const nightMid = '#1a2744';
-    const nightSoft = '#2a3a5c';
-    const nightWarm = '#3d2a48';
-    const nightHorizon = '#1a1528';
+    const nightTop = '#060a16';
+    const nightMid = '#0e1830';
+    const nightSoft = '#162240';
+    const nightWarm = '#1c1a32';
+    const nightHorizon = '#12101e';
 
-    const goldTop = '#3a4a78';
-    const goldMid = '#7a5a88';
-    const goldSoft = '#c87860';
-    const goldWarm = '#f0a060';
-    const goldHorizon = '#ffb070';
+    const goldTop = '#3a4578';
+    const goldMid = '#7a5a80';
+    const goldSoft = '#c87858';
+    const goldWarm = '#e89858';
+    const goldHorizon = '#f0b878';
 
+    // Prefer golden over night during early dusk so evening reads clearly before full dark
+    const eve = Math.max(golden, night * 0.35);
     const mix = (day, gold, dark) =>
-      lerpHex(lerpHex(day, gold, golden), dark, night);
+      lerpHex(lerpHex(day, gold, eve), dark, night);
 
     const grad = ctx.createLinearGradient(0, 0, 0, skyHeight);
     grad.addColorStop(0, mix(dayTop, goldTop, nightTop));
     grad.addColorStop(0.28, mix(dayMid, goldMid, nightMid));
     grad.addColorStop(0.55, mix(daySoft, goldSoft, nightSoft));
-    grad.addColorStop(0.78, mix(dayWarm, goldWarm, nightWarm));
+    grad.addColorStop(0.8, mix(dayWarm, goldWarm, nightWarm));
     grad.addColorStop(1, mix(dayHorizon, goldHorizon, nightHorizon));
 
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
-    // Stars — fade in with night
-    if (night > 0.05) {
+    // Soft radial sun bloom in upper sky (day) — depth, not flat fill
+    if (night < 0.6) {
+      const bloomX = width * (0.62 + golden * 0.1);
+      const bloomY = skyHeight * (0.18 - golden * 0.05);
+      const bloom = ctx.createRadialGradient(bloomX, bloomY, 10, bloomX, bloomY, width * 0.55);
+      const ba = (1 - night) * (0.22 + golden * 0.12);
+      bloom.addColorStop(0, golden > 0.25
+        ? `rgba(255, 200, 140, ${ba * 0.55})`
+        : `rgba(180, 220, 255, ${ba * 0.45})`);
+      bloom.addColorStop(0.45, golden > 0.25
+        ? `rgba(255, 170, 100, ${ba * 0.12})`
+        : `rgba(120, 180, 230, ${ba * 0.1})`);
+      bloom.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = bloom;
+      ctx.fillRect(0, 0, width, skyHeight);
+    }
+
+    // Stars — sharp sparkles (cross rays), not filled circles
+    if (night > 0.08) {
       const tw = performance.now() * 0.001;
+      const starScale = Math.max(0.55, Math.min(1, sceneScale));
       starsRef.current.forEach((s) => {
-        const alpha = night * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tw * 2.2 + s.twinkle)));
-        ctx.fillStyle = `rgba(220, 230, 255, ${alpha})`;
+        const base = night * (0.3 + s.bright * 0.55);
+        let pulse = 1;
+        if (s.blinks) {
+          const wave = 0.5 + 0.5 * Math.sin(tw * s.speed + s.twinkle);
+          pulse = s.blinkStrong
+            ? 0.08 + 0.92 * wave // clear on/off twinkle
+            : 0.28 + 0.72 * wave;
+        }
+        const alpha = base * pulse;
+        if (alpha < 0.05) return;
+        const px = s.x * width;
+        const py = s.y * skyHeight;
+        const arm = s.size * starScale * (0.9 + (s.blinks ? 0.35 * pulse : 0));
+        const a = Math.min(0.98, alpha);
+
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(s.rot || 0);
+        ctx.strokeStyle = `rgba(235, 242, 255, ${a})`;
+        ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
+        ctx.lineCap = 'round';
+
+        // Main cross
+        ctx.lineWidth = Math.max(0.6, arm * 0.28);
         ctx.beginPath();
-        ctx.arc(s.x * width, s.y * skyHeight, s.size, 0, Math.PI * 2);
+        ctx.moveTo(0, -arm);
+        ctx.lineTo(0, arm);
+        ctx.moveTo(-arm, 0);
+        ctx.lineTo(arm, 0);
+        ctx.stroke();
+
+        // Diagonal rays on larger / glowing stars
+        if (s.glow || s.size > 1.0) {
+          const d = arm * 0.55;
+          ctx.lineWidth = Math.max(0.45, arm * 0.18);
+          ctx.globalAlpha = a * 0.7;
+          ctx.beginPath();
+          ctx.moveTo(-d, -d);
+          ctx.lineTo(d, d);
+          ctx.moveTo(d, -d);
+          ctx.lineTo(-d, d);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+
+        // Tiny bright core (sub-pixel diamond, not a disc)
+        const c = Math.max(0.35, arm * 0.22);
+        ctx.beginPath();
+        ctx.moveTo(0, -c);
+        ctx.lineTo(c * 0.55, 0);
+        ctx.lineTo(0, c);
+        ctx.lineTo(-c * 0.55, 0);
+        ctx.closePath();
         ctx.fill();
+        ctx.restore();
       });
     }
 
@@ -629,96 +807,182 @@ export default function RikshaCanvas({
     const sun = celestialPos(cycle.phase, width, skyHeight, false);
     if (sun && night < 0.92) {
       const sunAlpha = Math.max(0, 1 - night * 1.15) * (0.55 + sun.elev * 0.45);
-      const glowR = 90 + sun.elev * 100;
-      const sunGlow = ctx.createRadialGradient(sun.x, sun.y, 4, sun.x, sun.y, glowR);
       const warm = golden > 0.2;
+      const glowR = (warm ? 100 : 70) + sun.elev * (warm ? 90 : 55);
+      const sunGlow = ctx.createRadialGradient(sun.x, sun.y, 3, sun.x, sun.y, glowR);
       sunGlow.addColorStop(0, warm
-        ? `rgba(255, 200, 110, ${0.85 * sunAlpha})`
-        : `rgba(255, 240, 180, ${0.75 * sunAlpha})`);
-      sunGlow.addColorStop(0.35, warm
-        ? `rgba(255, 140, 70, ${0.35 * sunAlpha})`
-        : `rgba(255, 210, 140, ${0.28 * sunAlpha})`);
-      sunGlow.addColorStop(1, 'rgba(255, 160, 80, 0)');
+        ? `rgba(255, 205, 120, ${0.88 * sunAlpha})`
+        : `rgba(255, 248, 220, ${0.7 * sunAlpha})`);
+      sunGlow.addColorStop(0.4, warm
+        ? `rgba(255, 150, 80, ${0.28 * sunAlpha})`
+        : `rgba(180, 220, 255, ${0.18 * sunAlpha})`);
+      sunGlow.addColorStop(1, 'rgba(255, 200, 120, 0)');
       ctx.fillStyle = sunGlow;
       ctx.fillRect(0, 0, width, skyHeight);
 
+      const sunR = (warm ? 13 : 11) + sun.elev * 5;
       ctx.beginPath();
-      ctx.arc(sun.x, sun.y, 14 + sun.elev * 6, 0, Math.PI * 2);
+      ctx.arc(sun.x, sun.y, sunR, 0, Math.PI * 2);
       ctx.fillStyle = warm
-        ? `rgba(255, 190, 90, ${0.95 * sunAlpha})`
-        : `rgba(255, 245, 200, ${0.95 * sunAlpha})`;
+        ? `rgba(255, 200, 100, ${0.95 * sunAlpha})`
+        : `rgba(255, 252, 235, ${0.92 * sunAlpha})`;
       ctx.fill();
     }
 
-    // Moon — drifts across during night
+    // Moon — soft crescent with sky-matched cutout
     const moon = celestialPos(cycle.phase, width, skyHeight, true);
-    if (moon && night > 0.08) {
-      const moonAlpha = Math.min(1, night * 1.2) * (0.5 + moon.elev * 0.5);
-      const moonGlow = ctx.createRadialGradient(moon.x, moon.y, 3, moon.x, moon.y, 70);
-      moonGlow.addColorStop(0, `rgba(200, 220, 255, ${0.45 * moonAlpha})`);
-      moonGlow.addColorStop(0.5, `rgba(160, 180, 230, ${0.12 * moonAlpha})`);
-      moonGlow.addColorStop(1, 'rgba(140, 160, 220, 0)');
+    if (moon && night > 0.12) {
+      const moonAlpha = Math.min(1, night * 1.15) * (0.55 + moon.elev * 0.45);
+      const glowR = (55 + moon.elev * 40) * Math.max(0.7, sceneScale);
+      const moonGlow = ctx.createRadialGradient(moon.x, moon.y, 2, moon.x, moon.y, glowR);
+      moonGlow.addColorStop(0, `rgba(200, 220, 255, ${0.4 * moonAlpha})`);
+      moonGlow.addColorStop(0.45, `rgba(140, 170, 230, ${0.12 * moonAlpha})`);
+      moonGlow.addColorStop(1, 'rgba(100, 130, 200, 0)');
       ctx.fillStyle = moonGlow;
       ctx.fillRect(0, 0, width, skyHeight);
 
-      const r = 11 + moon.elev * 4;
+      const r = (10 + moon.elev * 5) * Math.max(0.75, sceneScale);
       ctx.beginPath();
       ctx.arc(moon.x, moon.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(235, 240, 255, ${0.92 * moonAlpha})`;
+      ctx.fillStyle = `rgba(232, 238, 255, ${0.95 * moonAlpha})`;
       ctx.fill();
 
-      // Crescent cutout
+      // Crescent cutout uses current night sky tone (no hard black disk)
+      const cut = mix(dayMid, goldMid, nightMid);
+      const cr = parseInt(cut.slice(1, 3), 16);
+      const cg = parseInt(cut.slice(3, 5), 16);
+      const cb = parseInt(cut.slice(5, 7), 16);
       ctx.beginPath();
-      ctx.arc(moon.x + r * 0.35, moon.y - r * 0.1, r * 0.88, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(12, 18, 36, ${0.82 * moonAlpha})`;
+      ctx.arc(moon.x + r * 0.38, moon.y - r * 0.12, r * 0.86, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${0.92 * moonAlpha})`;
       ctx.fill();
     }
 
-    // Clouds dim at night
-    ctx.save();
-    ctx.globalAlpha = 1 - night * 0.72;
-    drawFluffyClouds(ctx, width, height, offset);
-    ctx.restore();
+    // Clouds — almost gone at deep night; thin slate wisps only
+    if (night < 0.92) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - night * 0.92);
+      drawFluffyClouds(ctx, width, height, offset, sceneScale, cycle);
+      ctx.restore();
+    }
   };
 
-  const drawFluffyCloud = (ctx, x, y, scale = 1) => {
+  // Distinct puff layouts so clouds don't look cloned
+  const CLOUD_SHAPES = [
+    // long flat streusel
+    {
+      blobs: [[0, 2, 11], [10, -2, 13], [22, 1, 12], [34, -3, 10], [46, 1, 9], [14, 6, 8], [30, 6, 8]],
+      hi: [[10, -4, 6], [24, -3, 5], [38, -5, 5]]
+    },
+    // tall puffy cumulus
+    {
+      blobs: [[4, 4, 10], [14, -6, 14], [26, -2, 12], [36, 3, 10], [18, 5, 9], [8, 0, 8], [30, -8, 9]],
+      hi: [[14, -10, 7], [26, -6, 6]]
+    },
+    // short chubby
+    {
+      blobs: [[0, 1, 12], [12, -3, 14], [24, 0, 11], [10, 5, 9], [20, 5, 8]],
+      hi: [[8, -4, 6], [18, -5, 7]]
+    },
+    // wispy / stretched
+    {
+      blobs: [[0, 0, 8], [9, -2, 10], [20, -1, 9], [32, -3, 11], [44, 0, 8], [55, -1, 7], [16, 3, 6], [38, 3, 6]],
+      hi: [[12, -4, 5], [34, -5, 5], [48, -3, 4]]
+    },
+    // two-hump
+    {
+      blobs: [[0, 2, 11], [10, -1, 12], [20, 3, 9], [32, -4, 13], [44, 0, 11], [14, 6, 7], [38, 5, 8]],
+      hi: [[8, -3, 5], [34, -7, 7]]
+    },
+    // dense cluster
+    {
+      blobs: [[2, 0, 10], [12, -5, 12], [22, -2, 13], [32, -6, 11], [40, 1, 10], [8, 5, 8], [18, 4, 9], [28, 5, 8]],
+      hi: [[12, -8, 6], [24, -5, 7], [34, -8, 5]]
+    }
+  ];
+
+  const drawFluffyCloud = (ctx, x, y, scale = 1, cycle = { night: 0, golden: 0 }, shapeIdx = 0, stretchX = 1) => {
+    const { night = 0, golden = 0 } = cycle;
+    const shape = CLOUD_SHAPES[shapeIdx % CLOUD_SHAPES.length];
+    const blobs = shape.blobs;
+    const highlights = shape.hi;
+
+    const top = night > 0.45
+      ? [55, 65, 90]
+      : golden > 0.2
+        ? [255, 236, 214]
+        : [248, 252, 255];
+    const bottom = night > 0.45
+      ? [35, 42, 62]
+      : golden > 0.2
+        ? [255, 200, 160]
+        : [180, 205, 230];
+
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.35)';
-    ctx.shadowBlur = 12;
-    const blobs = [
-      [0, 0, 38],
-      [28, -10, 32],
-      [52, 2, 36],
-      [78, -6, 28],
-      [18, 12, 26],
-      [55, 14, 24]
-    ];
+    ctx.translate(x, y);
+    ctx.scale(stretchX, 1);
+    ctx.globalAlpha = night > 0.45
+      ? 0.22 + night * 0.08
+      : (0.42 + (1 - night) * 0.28) * (0.85 + golden * 0.1);
+
+    // Soft underside (volume)
+    ctx.fillStyle = `rgba(${bottom[0]}, ${bottom[1]}, ${bottom[2]}, 0.35)`;
     ctx.beginPath();
     blobs.forEach(([dx, dy, r]) => {
-      ctx.moveTo(x + dx * scale + r * scale, y + dy * scale);
-      ctx.arc(x + dx * scale, y + dy * scale, r * scale, 0, Math.PI * 2);
+      const rr = r * scale * 0.95;
+      ctx.moveTo(dx * scale + rr, (dy + 4) * scale);
+      ctx.arc(dx * scale, (dy + 4) * scale, rr, 0, Math.PI * 2);
     });
     ctx.fill();
+
+    // Main body
+    ctx.fillStyle = `rgba(${top[0]}, ${top[1]}, ${top[2]}, 0.78)`;
+    ctx.beginPath();
+    blobs.forEach(([dx, dy, r]) => {
+      const rr = r * scale;
+      ctx.moveTo(dx * scale + rr, dy * scale);
+      ctx.arc(dx * scale, dy * scale, rr, 0, Math.PI * 2);
+    });
+    ctx.fill();
+
+    // Bright rim highlight — skip when night clouds are slate
+    if (night < 0.5) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.22 * (1 - night * 0.5)})`;
+      ctx.beginPath();
+      highlights.forEach(([dx, dy, r]) => {
+        const rr = r * scale;
+        ctx.moveTo(dx * scale + rr, dy * scale);
+        ctx.arc(dx * scale, dy * scale, rr, 0, Math.PI * 2);
+      });
+      ctx.fill();
+    }
     ctx.restore();
   };
 
-  const drawFluffyClouds = (ctx, width, height, offset) => {
-    const cycle = 1400;
-    const shift = offset % cycle;
+  const drawFluffyClouds = (ctx, width, height, offset, sceneScale = 1, cycle = { night: 0, golden: 0 }) => {
+    // Keep clouds modest on mobile; fuller on desktop
+    const cloudScale = Math.max(0.32, Math.min(1.05, Math.min(width / 680, height / 360)));
+    const s = cloudScale * Math.max(0.75, sceneScale);
+    const period = Math.max(820, Math.round(1280 * Math.max(0.6, s)));
+    const shift = offset % period;
+    const skyY = (t) => height * t;
+
     const clouds = [
-      { x: 80, y: height * 0.16, s: 1.15 },
-      { x: 380, y: height * 0.26, s: 0.85 },
-      { x: 680, y: height * 0.14, s: 1.35 },
-      { x: 980, y: height * 0.22, s: 1.0 },
-      { x: 1220, y: height * 0.18, s: 0.9 }
+      { x: 0.06 * period, y: skyY(0.10), s: 0.88, shape: 0, sx: 1.15 },
+      { x: 0.22 * period, y: skyY(0.17), s: 0.58, shape: 2, sx: 0.9 },
+      { x: 0.38 * period, y: skyY(0.08), s: 0.95, shape: 1, sx: 1.0 },
+      { x: 0.55 * period, y: skyY(0.14), s: 0.72, shape: 3, sx: 1.25 },
+      { x: 0.70 * period, y: skyY(0.11), s: 0.8, shape: 4, sx: 1.05 },
+      { x: 0.86 * period, y: skyY(0.16), s: 0.55, shape: 5, sx: 0.85 },
+      { x: 0.96 * period, y: skyY(0.09), s: 0.68, shape: 2, sx: 1.1 }
     ];
 
-    [-cycle, 0, cycle].forEach((bx) => {
+    const margin = 120 * s;
+    [-period, 0, period].forEach((bx) => {
       clouds.forEach((c) => {
         const dx = c.x + bx - shift;
-        if (dx > -180 && dx < width + 180) {
-          drawFluffyCloud(ctx, dx, c.y, c.s);
+        if (dx > -margin && dx < width + margin) {
+          drawFluffyCloud(ctx, dx, c.y, c.s * s, cycle, c.shape, c.sx);
         }
       });
     });
@@ -731,38 +995,82 @@ export default function RikshaCanvas({
     const hScale = 0.75 * sceneScale;
     const { night, golden } = dayCycle;
 
-    const dayCol = [230, 160, 120];
-    const goldCol = [180, 100, 90];
-    const nightCol = [70, 55, 95];
+    // Soft layered haze — day blue → evening rose → deep night indigo
+    const dayCol = [110, 145, 175];
+    const goldCol = [165, 115, 105];
+    const nightCol = [28, 32, 52];
     const c = dayCol.map((d, i) =>
       Math.round(lerp(lerp(d, goldCol[i], golden), nightCol[i], night))
     );
-    const alpha = lerp(0.45, 0.4, night);
+    const alpha = lerp(0.28, 0.55, night) + golden * 0.06;
+    const peaks = [
+      [60, 48], [140, 78], [230, 42], [340, 90],
+      [450, 55], [560, 85], [680, 40], [800, 72], [920, 50]
+    ];
+
+    const drawLayer = (yOff, hMul, aMul) => {
+      ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${alpha * aMul})`;
+      [-cycle, 0, cycle].forEach((bx) => {
+        const start = bx - shift * (0.7 + aMul * 0.3);
+        ctx.beginPath();
+        ctx.moveTo(start - 40, baseY + yOff);
+        peaks.forEach(([px, ph]) => {
+          ctx.lineTo(start + px, baseY + yOff - ph * hScale * hMul);
+        });
+        ctx.lineTo(start + cycle + 40, baseY + yOff);
+        ctx.closePath();
+        ctx.fill();
+      });
+    };
 
     ctx.save();
-    ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${alpha})`;
-    [-cycle, 0, cycle].forEach((bx) => {
-      const start = bx - shift;
-      ctx.beginPath();
-      ctx.moveTo(start - 40, baseY);
-      const peaks = [
-        [60, 48], [140, 78], [230, 42], [340, 90],
-        [450, 55], [560, 85], [680, 40], [800, 72], [920, 50]
+    drawLayer(-6 * sceneScale, 1.15, 0.55);
+    drawLayer(0, 1, 1);
+
+    // Sparse far-city window pinpricks at night
+    if (night > 0.35) {
+      const la = Math.min(1, (night - 0.35) / 0.4) * 0.55;
+      ctx.fillStyle = `rgba(255, 210, 140, ${la})`;
+      const lights = [
+        [95, 38], [155, 58], [280, 34], [360, 70],
+        [480, 42], [590, 62], [720, 30], [840, 55]
       ];
-      peaks.forEach(([px, ph]) => {
-        ctx.lineTo(start + px, baseY - ph * hScale);
+      [-cycle, 0, cycle].forEach((bx) => {
+        const start = bx - shift;
+        lights.forEach(([px, ph], i) => {
+          if (i % 3 === 1) return;
+          const lx = start + px;
+          const ly = baseY - ph * hScale * 0.85;
+          if (lx > -4 && lx < width + 4) {
+            ctx.fillRect(lx, ly, 1.5 * sceneScale, 1.5 * sceneScale);
+          }
+        });
       });
-      ctx.lineTo(start + cycle + 40, baseY);
-      ctx.closePath();
-      ctx.fill();
-    });
+    }
     ctx.restore();
   };
 
-  const drawPalm = (ctx, x, baseY, scale = 1) => {
+  const drawPalm = (ctx, x, baseY, scale = 1, dayCycle = { night: 0, golden: 0 }) => {
+    const { night = 0, golden = 0 } = dayCycle;
+    const trunk = lerpHex(
+      lerpHex('#9a7048', '#7a5538', golden),
+      '#0c1210',
+      night
+    );
+    const leafA = lerpHex(
+      lerpHex('#3caa62', '#6a9a48', golden),
+      '#0a1210',
+      night
+    );
+    const leafB = lerpHex(
+      lerpHex('#2f8a50', '#508038', golden),
+      '#080e0c',
+      night
+    );
     ctx.save();
-    ctx.strokeStyle = '#6b4428';
-    ctx.lineWidth = Math.max(2, 4.5 * scale);
+    ctx.globalAlpha = 0.9 - night * 0.35;
+    ctx.strokeStyle = trunk;
+    ctx.lineWidth = Math.max(2, 4.2 * scale);
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(x, baseY);
@@ -773,7 +1081,7 @@ export default function RikshaCanvas({
     const crownY = baseY - 86 * scale;
     for (let i = 0; i < 8; i++) {
       const a = (Math.PI * 2 * i) / 8 - Math.PI / 2;
-      ctx.fillStyle = i % 2 === 0 ? '#3cb371' : '#2e9e5b';
+      ctx.fillStyle = i % 2 === 0 ? leafA : leafB;
       ctx.beginPath();
       ctx.ellipse(
         crownX + Math.cos(a) * 14 * scale,
@@ -789,18 +1097,19 @@ export default function RikshaCanvas({
     ctx.restore();
   };
 
-  // --- FLAT-DESIGN TOWN ---
+  // --- CITY SKYLINE — attractive day facades that melt into night ---
   const drawCityTown = (ctx, width, baseY, dayCycle, offset, sceneScale = 1) => {
     const s = Math.max(0.5, sceneScale * 0.85);
-    const { night, golden } = dayCycle;
+    const { night, golden, dayLite = Math.max(0, 1 - night) } = dayCycle;
+    // Warm street palette by day → slate by night (all colors lerp smoothly)
     const buildings = [
-      { color: '#ef8f6a', nightColor: '#3a4558', roof: '#2d3545', w: 72, h: 70, palm: true, palmScale: 0.9 },
-      { color: '#6aa4b8', nightColor: '#2e3a4e', roof: '#2d3545', w: 66, h: 82, palm: false },
-      { color: '#f6c86a', nightColor: '#3d4254', roof: '#2d3545', w: 74, h: 64, palm: true, palmScale: 1.0 },
-      { color: '#7eb0c2', nightColor: '#324056', roof: '#2d3545', w: 68, h: 76, palm: false },
-      { color: '#e99a6c', nightColor: '#384456', roof: '#2d3545', w: 76, h: 68, palm: true, palmScale: 0.85 },
-      { color: '#f0c478', nightColor: '#3a4050', roof: '#2d3545', w: 70, h: 60, palm: false },
-      { color: '#d97d62', nightColor: '#353f52', roof: '#2d3545', w: 72, h: 74, palm: true, palmScale: 0.95 }
+      { dayColor: '#e8c9a8', eveColor: '#c48868', nightColor: '#161c28', roofDay: '#8a6548', roofNight: '#0e141c', accent: '#d4564a', w: 72, h: 70, palm: true, palmScale: 0.9, style: 'shop' },
+      { dayColor: '#7eb0c4', eveColor: '#5a7a98', nightColor: '#121820', roofDay: '#4a6a78', roofNight: '#0c1218', accent: '#f0c56a', w: 66, h: 82, palm: false, style: 'tall' },
+      { dayColor: '#f2e2c4', eveColor: '#d4a878', nightColor: '#181e28', roofDay: '#9a7858', roofNight: '#10161e', accent: '#5a9e7a', w: 74, h: 64, palm: true, palmScale: 1.0, style: 'villa' },
+      { dayColor: '#8eb8c8', eveColor: '#688898', nightColor: '#141a24', roofDay: '#4a6878', roofNight: '#0e141c', accent: '#e87860', w: 68, h: 76, palm: false, style: 'tall' },
+      { dayColor: '#e2b898', eveColor: '#b87858', nightColor: '#161c26', roofDay: '#7a5840', roofNight: '#0e141c', accent: '#f0b050', w: 76, h: 68, palm: true, palmScale: 0.85, style: 'shop' },
+      { dayColor: '#c8d4c8', eveColor: '#889888', nightColor: '#141a22', roofDay: '#5a7060', roofNight: '#0c1218', accent: '#68a090', w: 70, h: 60, palm: false, style: 'villa' },
+      { dayColor: '#dca888', eveColor: '#b06850', nightColor: '#181e2a', roofDay: '#7a5040', roofNight: '#10161e', accent: '#e8c060', w: 72, h: 74, palm: true, palmScale: 0.95, style: 'shop' }
     ];
 
     const gap = Math.max(10, 14 * s);
@@ -808,64 +1117,236 @@ export default function RikshaCanvas({
     const shift = offset % cycleWidth;
 
     const groundGrad = ctx.createLinearGradient(0, baseY - 16 * s, 0, baseY);
-    const gAlpha = lerp(0.35, 0.12, night);
-    groundGrad.addColorStop(0, `rgba(245, 190, 140, 0)`);
-    groundGrad.addColorStop(1, `rgba(${Math.round(lerp(235, 80, night))}, ${Math.round(lerp(170, 90, night))}, ${Math.round(lerp(120, 120, night))}, ${gAlpha})`);
+    const gAlpha = lerp(0.32, 0.1, night);
+    groundGrad.addColorStop(0, 'rgba(200, 180, 140, 0)');
+    groundGrad.addColorStop(1, `rgba(${Math.round(lerp(190, 40, night))}, ${Math.round(lerp(160, 50, night))}, ${Math.round(lerp(120, 70, night))}, ${gAlpha})`);
     ctx.fillStyle = groundGrad;
     ctx.fillRect(0, baseY - 18 * s, width, 18 * s);
 
     [-cycleWidth, 0, cycleWidth, cycleWidth * 2].forEach((blockX) => {
       let cx = blockX - shift;
-      buildings.forEach((b) => {
+      buildings.forEach((b, bi) => {
         const bw = b.w * s;
         const bh = b.h * s;
         if (cx > -120 && cx < width + 120) {
           if (b.palm) {
-            ctx.save();
-            ctx.globalAlpha = 1 - night * 0.35;
-            drawPalm(ctx, cx - 6 * s, baseY, (b.palmScale || 1) * s);
-            ctx.restore();
+            drawPalm(ctx, cx - 6 * s, baseY, (b.palmScale || 1) * s, dayCycle);
           }
 
-          const facadeColor = lerpHex(
-            lerpHex(b.color, shadeHex(b.color, -12), golden * 0.4),
-            b.nightColor,
+          // day → evening → night facade blend
+          const dayEve = lerpHex(b.dayColor, b.eveColor, golden);
+          const facadeColor = lerpHex(dayEve, b.nightColor, night);
+          const roofColor = lerpHex(
+            lerpHex(b.roofDay, shadeHex(b.roofDay, -10), golden),
+            b.roofNight,
             night
           );
+
           const facade = ctx.createLinearGradient(cx, baseY - bh, cx + bw, baseY);
-          facade.addColorStop(0, facadeColor);
-          facade.addColorStop(1, shadeHex(facadeColor, -18));
+          facade.addColorStop(0, shadeHex(facadeColor, Math.round(14 * dayLite)));
+          facade.addColorStop(0.4, facadeColor);
+          facade.addColorStop(1, shadeHex(facadeColor, -16));
           ctx.fillStyle = facade;
           ctx.fillRect(cx, baseY - bh, bw, bh);
 
-          ctx.fillStyle = lerpHex(b.roof, '#1a2030', night);
-          ctx.fillRect(cx - 2 * s, baseY - bh - 4 * s, bw + 4 * s, 4 * s);
+          // Roof overhang
+          ctx.fillStyle = roofColor;
+          ctx.fillRect(cx - 3 * s, baseY - bh - 5 * s, bw + 6 * s, 5 * s);
+          if (dayLite > 0.2) {
+            ctx.fillStyle = `rgba(255,240,220,${0.2 * dayLite})`;
+            ctx.fillRect(cx - 3 * s, baseY - bh - 5 * s, bw + 6 * s, 1.5 * s);
+          }
 
+          // Accent stripe / awning (shops) — day/evening only
+          if (b.style === 'shop' && dayLite > 0.12) {
+            const awningY = baseY - bh * 0.42;
+            ctx.fillStyle = lerpHex(b.accent, shadeHex(b.accent, -30), night);
+            ctx.globalAlpha = 0.35 + dayLite * 0.55;
+            ctx.fillRect(cx - 2 * s, awningY, bw + 4 * s, 5 * s);
+            ctx.fillStyle = `rgba(255,255,255,${0.2 * dayLite})`;
+            for (let i = 0; i < 5; i++) {
+              ctx.fillRect(cx + i * (bw / 5), awningY, bw / 10, 5 * s);
+            }
+            ctx.globalAlpha = 1;
+          }
+
+          // Door — warm porch spill at night for shops
+          const doorW = 12 * s;
+          const doorH = 18 * s;
+          const doorX = cx + bw * 0.5 - doorW / 2;
+          ctx.fillStyle = lerpHex('#5a3a28', '#0a0e14', night);
+          ctx.fillRect(doorX, baseY - doorH, doorW, doorH);
+          if (dayLite > 0.3) {
+            ctx.fillStyle = `rgba(255,220,160,${0.25 * dayLite})`;
+            ctx.fillRect(doorX + 2 * s, baseY - doorH + 3 * s, 3 * s, 4 * s);
+          } else if (night > 0.4 && b.style === 'shop') {
+            const porch = Math.min(1, (night - 0.4) / 0.35);
+            ctx.fillStyle = `rgba(255, 195, 120, ${0.4 * porch})`;
+            ctx.fillRect(doorX + 2 * s, baseY - doorH + 4 * s, doorW - 4 * s, 5 * s);
+          }
+
+          // Windows with frames
           const winW = 11 * s;
           const winH = 13 * s;
-          const cols = [10 * s, bw - 22 * s];
-          const rows = [12 * s, 30 * s, 48 * s];
+          const cols = [9 * s, bw - 22 * s];
+          const rows = b.style === 'tall'
+            ? [10 * s, 28 * s, 46 * s, 64 * s]
+            : [10 * s, 28 * s, 46 * s];
           rows.forEach((ry, ri) => {
-            if (ry + winH < bh - 6 * s) {
+            if (ry + winH < bh - doorH - 4 * s) {
               cols.forEach((rx, ci) => {
-                // Lit windows at night
-                if (night > 0.35 && (ri + ci) % 2 === 0) {
-                  const glow = Math.min(1, (night - 0.35) / 0.4);
-                  ctx.fillStyle = `rgba(255, 210, 120, ${0.55 + glow * 0.35})`;
-                } else {
-                  ctx.fillStyle = lerpHex('#1e2533', '#0e121a', night);
+                // Stable per-building pattern (no scroll flicker / blink)
+                const seed = (bi * 11 + ri * 3 + ci * 7) % 5;
+                const lit = night > 0.28 && seed !== 1 && seed !== 4;
+                // Frame
+                if (dayLite > 0.15) {
+                  ctx.fillStyle = `rgba(255,245,230,${0.35 * dayLite})`;
+                  ctx.fillRect(cx + rx - 1.5 * s, baseY - bh + ry - 1.5 * s, winW + 3 * s, winH + 3 * s);
                 }
-                ctx.fillRect(cx + rx, baseY - bh + ry, winW, winH);
+                if (lit) {
+                  const glow = Math.min(1, (night - 0.28) / 0.4);
+                  const wx = cx + rx;
+                  const wy = baseY - bh + ry;
+                  ctx.fillStyle = `rgba(255, ${Math.round(lerp(205, 185, glow))}, ${Math.round(lerp(145, 105, glow))}, ${0.6 + glow * 0.3})`;
+                  ctx.fillRect(wx, wy, winW, winH);
+                  ctx.fillStyle = `rgba(255, 240, 200, ${0.22 * glow})`;
+                  ctx.fillRect(wx + 1.5 * s, wy + 1.5 * s, winW - 3 * s, winH * 0.3);
+                } else {
+                  // Day glass → dark night glass
+                  const skyR = Math.round(lerp(150, 18, night));
+                  const skyG = Math.round(lerp(200, 24, night));
+                  const skyB = Math.round(lerp(230, 36, night));
+                  ctx.fillStyle = `rgba(${skyR}, ${skyG}, ${skyB}, ${0.55 + dayLite * 0.25 - night * 0.15})`;
+                  ctx.fillRect(cx + rx, baseY - bh + ry, winW, winH);
+                  if (dayLite > 0.25) {
+                    ctx.fillStyle = `rgba(255,255,255,${0.35 * dayLite})`;
+                    ctx.fillRect(cx + rx, baseY - bh + ry, winW, 2.5 * s);
+                    ctx.fillRect(cx + rx, baseY - bh + ry, 2 * s, winH);
+                  }
+                }
               });
             }
           });
 
-          ctx.fillStyle = `rgba(255,255,255,${0.12 * (1 - night * 0.7)})`;
-          ctx.fillRect(cx, baseY - bh, 3 * s, bh);
+          // Balcony rail on villas
+          if (b.style === 'villa' && dayLite > 0.1) {
+            const by = baseY - bh * 0.55;
+            ctx.strokeStyle = `rgba(255,240,220,${0.35 * dayLite + golden * 0.15})`;
+            ctx.lineWidth = Math.max(1, 1.5 * s);
+            ctx.beginPath();
+            ctx.moveTo(cx + 4 * s, by);
+            ctx.lineTo(cx + bw - 4 * s, by);
+            ctx.stroke();
+            for (let i = 0; i < 4; i++) {
+              const bx = cx + 8 * s + i * ((bw - 16 * s) / 3);
+              ctx.beginPath();
+              ctx.moveTo(bx, by);
+              ctx.lineTo(bx, by + 8 * s);
+              ctx.stroke();
+            }
+          }
+
+          // Sun / evening rim — gone at night
+          if (dayLite > 0.08 || golden > 0.12) {
+            ctx.fillStyle = golden > 0.15
+              ? `rgba(255, 180, 100, ${(1 - night) * 0.12 + golden * 0.14})`
+              : `rgba(200, 230, 255, ${dayLite * 0.14})`;
+            ctx.fillRect(cx, baseY - bh, 2.5 * s, bh);
+          }
         }
         cx += bw + gap;
       });
     });
+  };
+
+  const drawStreetlights = (ctx, width, roadTop, curbH, roadHeight, dayCycle, offset, sceneScale = 1) => {
+    const { night = 0, dayLite = Math.max(0, 1 - night) } = dayCycle;
+    const s = Math.max(0.55, sceneScale * 0.9);
+    const spacing = Math.max(210, 280 * s);
+    const shift = offset % spacing;
+    const lit = Math.min(1, Math.max(0, (night - 0.2) / 0.45));
+    const groundY = roadTop + curbH * 0.4;
+    const poleH = 68 * s;
+    const arm = 34 * s;
+    const metal = lerpHex('#7a828c', '#1c222c', Math.max(night, 0.5));
+
+    ctx.save();
+    for (let x = -spacing - shift; x < width + spacing; x += spacing) {
+      const px = x + spacing * 0.4;
+      const top = groundY - poleH;
+      const lampX = px + arm;
+      const lampY = top + 10 * s;
+
+      // Soft fan of light — wide, fades out, no round pool
+      if (lit > 0.05) {
+        const reach = roadHeight * 0.55;
+        const fan = ctx.createLinearGradient(lampX, lampY, lampX, groundY + reach);
+        fan.addColorStop(0, `rgba(255, 220, 160, ${0.18 * lit})`);
+        fan.addColorStop(0.35, `rgba(255, 195, 120, ${0.1 * lit})`);
+        fan.addColorStop(1, 'rgba(255, 170, 90, 0)');
+        ctx.fillStyle = fan;
+        ctx.beginPath();
+        ctx.moveTo(lampX - 4 * s, lampY + 2 * s);
+        ctx.lineTo(lampX + 4 * s, lampY + 2 * s);
+        ctx.lineTo(lampX + 95 * s, groundY + reach);
+        ctx.lineTo(lampX - 55 * s, groundY + reach);
+        ctx.closePath();
+        ctx.fill();
+
+        // Gentle horizontal fade on asphalt (rectangle gradient, not a disc)
+        const wash = ctx.createLinearGradient(lampX - 90 * s, 0, lampX + 110 * s, 0);
+        wash.addColorStop(0, 'rgba(255, 190, 110, 0)');
+        wash.addColorStop(0.35, `rgba(255, 200, 130, ${0.08 * lit})`);
+        wash.addColorStop(0.55, `rgba(255, 210, 140, ${0.11 * lit})`);
+        wash.addColorStop(0.75, `rgba(255, 195, 120, ${0.07 * lit})`);
+        wash.addColorStop(1, 'rgba(255, 180, 100, 0)');
+        ctx.fillStyle = wash;
+        ctx.fillRect(lampX - 90 * s, groundY, 200 * s, reach * 0.85);
+      }
+
+      // Simple clean post
+      ctx.fillStyle = metal;
+      ctx.fillRect(px - 4 * s, groundY - 3 * s, 8 * s, 4 * s);
+      ctx.fillRect(px - 2 * s, top + 6 * s, 4 * s, groundY - top - 8 * s);
+
+      ctx.strokeStyle = metal;
+      ctx.lineWidth = Math.max(2.5, 3.5 * s);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px, top + 8 * s);
+      ctx.quadraticCurveTo(px + arm * 0.4, top - 2 * s, lampX, lampY);
+      ctx.stroke();
+
+      // Compact lamp head
+      ctx.fillStyle = metal;
+      ctx.beginPath();
+      ctx.moveTo(lampX - 7 * s, lampY);
+      ctx.lineTo(lampX + 7 * s, lampY);
+      ctx.lineTo(lampX + 5 * s, lampY + 5 * s);
+      ctx.lineTo(lampX - 5 * s, lampY + 5 * s);
+      ctx.closePath();
+      ctx.fill();
+
+      if (lit > 0.05) {
+        ctx.fillStyle = `rgba(255, 235, 190, ${0.85 * lit})`;
+        ctx.beginPath();
+        ctx.ellipse(lampX, lampY + 5.5 * s, 4.5 * s, 2.8 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const tip = ctx.createRadialGradient(lampX, lampY + 5 * s, 0.5, lampX, lampY + 5 * s, 12 * s);
+        tip.addColorStop(0, `rgba(255, 230, 170, ${0.4 * lit})`);
+        tip.addColorStop(1, 'rgba(255, 200, 120, 0)');
+        ctx.fillStyle = tip;
+        ctx.beginPath();
+        ctx.arc(lampX, lampY + 5 * s, 12 * s, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (dayLite > 0.4) {
+        ctx.fillStyle = `rgba(200, 210, 220, ${0.35 * dayLite})`;
+        ctx.beginPath();
+        ctx.ellipse(lampX, lampY + 5.5 * s, 4 * s, 2.5 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   };
 
   const shadeHex = (hex, amount) => {

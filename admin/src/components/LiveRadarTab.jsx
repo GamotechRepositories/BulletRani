@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Plane, UserRound } from 'lucide-react';
 
 export default function LiveRadarTab({
   liveRound,
@@ -25,8 +26,8 @@ export default function LiveRadarTab({
       {/* Live Flight HUD Banner */}
       <div className="bg-[#121622] border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-3xl">
-            ✈️
+          <div className="w-14 h-14 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400">
+            <Plane size={26} strokeWidth={2.25} />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -174,7 +175,9 @@ export default function LiveRadarTab({
                   return (
                     <tr key={b.id} className="hover:bg-white/[0.02]">
                       <td className="p-3 font-sans font-medium flex items-center gap-2">
-                        <span>{b.avatar || '🧑‍✈️'}</span>
+                        <span className="inline-flex text-gray-400">
+                          {b.avatar ? b.avatar : <UserRound size={14} strokeWidth={2.25} />}
+                        </span>
                         <span className="font-bold text-white">{b.username}</span>
                         {b.isBot && <span className="text-[9px] bg-white/10 px-1 py-0.5 rounded text-gray-400">BOT</span>}
                       </td>

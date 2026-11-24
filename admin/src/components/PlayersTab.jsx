@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { UserRound } from 'lucide-react';
 
 export default function PlayersTab({
   users,
@@ -137,7 +138,7 @@ export default function PlayersTab({
                 <tr key={u.id} className="hover:bg-white/[0.02]">
                   <td className="p-3 text-gray-400">#{u.id}</td>
                   <td className="p-3 font-sans font-bold text-white flex items-center gap-2">
-                    <span>🧑‍✈️</span>
+                    <UserRound size={14} strokeWidth={2.25} className="text-gray-400 shrink-0" />
                     <span>{u.username}</span>
                   </td>
                   <td className="p-3 font-sans text-gray-400">{u.email}</td>

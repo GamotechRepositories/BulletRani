@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
+import { Shield, Check, X } from 'lucide-react';
 import AdminHeader from './components/AdminHeader';
 import AdminSidebar from './components/AdminSidebar';
 import OverviewTab from './components/OverviewTab';
@@ -15,14 +17,16 @@ const API_BASE = 'http://localhost:5000/api';
 const SOCKET_URL = 'http://localhost:5001';
 
 export default function AdminApp() {
+  const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
   const [token, setToken] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Login form state
-  const [loginEmail, setLoginEmail] = useState('admin@aviator.local');
-  const [loginPass, setLoginPass] = useState('admin123');
+  // Login form state — seeded admin: admin / 123456
+  const [loginId, setLoginId] = useState('admin');
+  const [loginPass, setLoginPass] = useState('123456');
   const [loginError, setLoginError] = useState(null);
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // Live Engine State
   const [liveRound, setLiveRound] = useState({
@@ -53,36 +57,40 @@ export default function AdminApp() {
   const [adjustReason, setAdjustReason] = useState('VIP Promotion Bonus');
   const [statusAlert, setStatusAlert] = useState(null);
 
-  // Auto-login on mount
+  // Restore session if a valid admin JWT is stored
   useEffect(() => {
     const savedToken = localStorage.getItem('aviator_admin_token');
     if (savedToken) {
       setToken(savedToken);
       fetchAdminProfile(savedToken);
-    } else {
-      handleLogin();
     }
   }, []);
 
   const handleLogin = async (e) => {
     if (e) e.preventDefault();
     setLoginError(null);
+    setLoginLoading(true);
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: loginEmail, password: loginPass })
+        body: JSON.stringify({ login: loginId.trim(), password: loginPass })
       });
       const data = await res.json();
-      if (data.success && data.user.role === 'admin') {
+      if (data.success && data.user?.role === 'admin') {
         setToken(data.token);
         setAdminUser(data.user);
         localStorage.setItem('aviator_admin_token', data.token);
+        navigate('/overview', { replace: true });
+      } else if (data.success && data.user?.role !== 'admin') {
+        setLoginError('Access denied — admin role required');
       } else {
         setLoginError(data.error || 'Invalid admin credentials');
       }
     } catch {
       setLoginError('Could not connect to backend server');
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -94,14 +102,23 @@ export default function AdminApp() {
       const data = await res.json();
       if (data.user && data.user.role === 'admin') {
         setAdminUser(data.user);
+        setToken(authToken);
+      } else {
+        localStorage.removeItem('aviator_admin_token');
+        setToken(null);
+        setAdminUser(null);
       }
     } catch {
       localStorage.removeItem('aviator_admin_token');
+      setToken(null);
+      setAdminUser(null);
     }
   };
 
-  // Socket connection for live flight monitoring
+  // Socket connection for live flight monitoring (only after admin login)
   useEffect(() => {
+    if (!token || !adminUser) return undefined;
+
     const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
     s.emit('game:init', {});
 
@@ -181,7 +198,7 @@ export default function AdminApp() {
     });
 
     return () => s.disconnect();
-  }, [token]);
+  }, [token, adminUser]);
 
   // Fetch API endpoints
   const fetchStats = async () => {
@@ -312,7 +329,7 @@ export default function AdminApp() {
         fetchTransactions();
       }
     } catch {
-      alert('Failed to adjust balance');
+      setStatusAlert('Failed to adjust balance');
     }
   };
 
@@ -364,7 +381,7 @@ export default function AdminApp() {
         fetchStats();
       }
     } catch {
-      alert('Failed to save settings');
+      setStatusAlert('Failed to save settings');
     }
   };
 
@@ -373,11 +390,11 @@ export default function AdminApp() {
       <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-4 select-none">
         <div className="bg-[#121622] border border-white/10 rounded-3xl max-w-sm w-full p-6 text-white shadow-2xl">
           <div className="text-center mb-6">
-            <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-2xl">
-              🛡️
+            <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400">
+              <Shield size={22} strokeWidth={2.25} />
             </div>
             <h2 className="text-xl font-black" style={{ fontFamily: "'Chakra Petch', sans-serif" }}>
-              AVIATOR BACKOFFICE
+              BULLET RANI ADMIN
             </h2>
             <p className="text-xs text-gray-400">Restricted Administration Access</p>
           </div>
@@ -390,11 +407,12 @@ export default function AdminApp() {
 
           <form onSubmit={handleLogin} className="space-y-3 text-xs">
             <div>
-              <label className="text-gray-300 block mb-1 font-semibold">Admin Email</label>
+              <label className="text-gray-300 block mb-1 font-semibold">Admin ID</label>
               <input
-                type="email"
-                value={loginEmail}
-                onChange={e => setLoginEmail(e.target.value)}
+                type="text"
+                autoComplete="username"
+                value={loginId}
+                onChange={e => setLoginId(e.target.value)}
                 className="w-full bg-black/50 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-red-500"
               />
             </div>
@@ -402,6 +420,7 @@ export default function AdminApp() {
               <label className="text-gray-300 block mb-1 font-semibold">Password</label>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={loginPass}
                 onChange={e => setLoginPass(e.target.value)}
                 className="w-full bg-black/50 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-red-500"
@@ -409,9 +428,10 @@ export default function AdminApp() {
             </div>
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 font-bold text-sm text-white hover:from-red-500 hover:to-rose-500 active:scale-98 transition-all mt-4 shadow-[0_0_20px_rgba(229,34,60,0.4)]"
+              disabled={loginLoading}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 font-bold text-sm text-white hover:from-red-500 hover:to-rose-500 active:scale-98 transition-all mt-4 shadow-[0_0_20px_rgba(229,34,60,0.4)] disabled:opacity-60"
             >
-              Sign In to Backoffice
+              {loginLoading ? 'Signing in…' : 'Sign In to Backoffice'}
             </button>
           </form>
         </div>
@@ -420,110 +440,128 @@ export default function AdminApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans select-none antialiased">
+    <div className="h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans select-none antialiased overflow-hidden">
       {/* Header */}
       <AdminHeader
         adminUser={adminUser}
         liveRound={liveRound}
+        onMenuToggle={() => setSidebarOpen((v) => !v)}
         onLogout={() => {
           localStorage.removeItem('aviator_admin_token');
           setAdminUser(null);
           setToken(null);
+          setSidebarOpen(false);
+          navigate('/', { replace: true });
         }}
       />
 
       {statusAlert && (
-        <div className="bg-emerald-950/70 border-b border-emerald-500/30 px-6 py-2 text-xs font-semibold text-emerald-300 flex items-center justify-between">
-          <span>✓ {statusAlert}</span>
-          <button onClick={() => setStatusAlert(null)} className="text-emerald-400 hover:text-white">✕</button>
+        <div className="shrink-0 bg-emerald-950/70 border-b border-emerald-500/30 px-6 py-2 text-xs font-semibold text-emerald-300 flex items-center justify-between">
+          <span className="inline-flex items-center gap-1.5">
+            <Check size={14} strokeWidth={2.5} />
+            {statusAlert}
+          </span>
+          <button onClick={() => setStatusAlert(null)} className="text-emerald-400 hover:text-white p-0.5">
+            <X size={14} strokeWidth={2.5} />
+          </button>
         </div>
       )}
 
       {/* Main Layout: Left Sidebar + Center Workspace */}
-      <div className="flex-1 flex overflow-hidden">
-        <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        <AdminSidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
 
-        <main className="flex-1 p-6 overflow-y-auto max-w-[1600px] w-full mx-auto">
-          {activeTab === 'overview' && (
-            <OverviewTab stats={stats} settings={settings} liveRound={liveRound} />
-          )}
-
-          {activeTab === 'live_radar' && (
-            <LiveRadarTab
-              liveRound={liveRound}
-              engineState={engineState}
-              onForceCrash={async () => {
-                const d = await adminPost('force-crash');
-                if (d?.success) setStatusAlert(`Forced crash @ ${Number(d.crashedAt).toFixed(2)}x`);
-              }}
-              onForceStart={async () => {
-                const d = await adminPost('force-start');
-                if (d?.success) setStatusAlert('Round launched');
-              }}
-              onPause={async () => {
-                const d = await adminPost('pause');
-                if (d?.success) setStatusAlert('Engine paused');
-              }}
-              onResume={async () => {
-                const d = await adminPost('resume');
-                if (d?.success) setStatusAlert('Engine resumed');
-              }}
-              onSetNextCrash={async (multiplier) => {
-                const d = await adminPost('set-next-crash', { multiplier });
-                if (d?.success) setStatusAlert(`Next crash locked @ ${d.nextCrashOverride}x`);
-              }}
-              onSetCrashTarget={async (multiplier) => {
-                const d = await adminPost('set-crash-target', { multiplier });
-                if (d?.success) setStatusAlert(`Live crash target @ ${d.crashTarget || d.crashedAt}x`);
-              }}
-              onClearOverrides={async () => {
-                const d = await adminPost('clear-overrides');
-                if (d?.success) setStatusAlert('Crash overrides cleared');
-              }}
+        <main className="flex-1 min-w-0 p-4 sm:p-6 overflow-y-auto">
+          <Routes>
+            <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route
+              path="/overview"
+              element={<OverviewTab stats={stats} settings={settings} liveRound={liveRound} />}
             />
-          )}
-
-          {activeTab === 'players' && (
-            <PlayersTab
-              users={users}
-              onRefresh={fetchUsers}
-              onAdjustBalance={(u) => { setAdjustModalUser(u); setAdjustAmount(1000); }}
-              onToggleBan={handleToggleBan}
-              onSetRole={handleSetRole}
-              onResetPassword={handleResetPassword}
-              onCreateUser={handleCreateUser}
+            <Route
+              path="/live-radar"
+              element={
+                <LiveRadarTab
+                  liveRound={liveRound}
+                  engineState={engineState}
+                  onForceCrash={async () => {
+                    const d = await adminPost('force-crash');
+                    if (d?.success) setStatusAlert(`Forced crash @ ${Number(d.crashedAt).toFixed(2)}x`);
+                  }}
+                  onForceStart={async () => {
+                    const d = await adminPost('force-start');
+                    if (d?.success) setStatusAlert('Round launched');
+                  }}
+                  onPause={async () => {
+                    const d = await adminPost('pause');
+                    if (d?.success) setStatusAlert('Engine paused');
+                  }}
+                  onResume={async () => {
+                    const d = await adminPost('resume');
+                    if (d?.success) setStatusAlert('Engine resumed');
+                  }}
+                  onSetNextCrash={async (multiplier) => {
+                    const d = await adminPost('set-next-crash', { multiplier });
+                    if (d?.success) setStatusAlert(`Next crash locked @ ${d.nextCrashOverride}x`);
+                  }}
+                  onSetCrashTarget={async (multiplier) => {
+                    const d = await adminPost('set-crash-target', { multiplier });
+                    if (d?.success) setStatusAlert(`Live crash target @ ${d.crashTarget || d.crashedAt}x`);
+                  }}
+                  onClearOverrides={async () => {
+                    const d = await adminPost('clear-overrides');
+                    if (d?.success) setStatusAlert('Crash overrides cleared');
+                  }}
+                />
+              }
             />
-          )}
-
-          {activeTab === 'settings' && (
-            <SettingsTab
-              settings={settings}
-              setSettings={setSettings}
-              onSave={handleSaveSettings}
+            <Route
+              path="/players"
+              element={
+                <PlayersTab
+                  users={users}
+                  onRefresh={fetchUsers}
+                  onAdjustBalance={(u) => { setAdjustModalUser(u); setAdjustAmount(1000); }}
+                  onToggleBan={handleToggleBan}
+                  onSetRole={handleSetRole}
+                  onResetPassword={handleResetPassword}
+                  onCreateUser={handleCreateUser}
+                />
+              }
             />
-          )}
-
-          {activeTab === 'provider' && (
-            <ProviderTab
-              token={token}
-              apiBase={API_BASE}
-              onAlert={(msg) => setStatusAlert(msg)}
+            <Route
+              path="/settings"
+              element={
+                <SettingsTab
+                  settings={settings}
+                  setSettings={setSettings}
+                  onSave={handleSaveSettings}
+                />
+              }
             />
-          )}
-
-          {activeTab === 'rounds' && (
-            <RoundsLedgerTab
-              history={history}
-              onRefresh={fetchHistory}
+            <Route
+              path="/provider"
+              element={
+                <ProviderTab
+                  token={token}
+                  apiBase={API_BASE}
+                  onAlert={(msg) => setStatusAlert(msg)}
+                />
+              }
             />
-          )}
-
-          {activeTab === 'transactions' && (
-            <TransactionsTab
-              transactions={transactions}
-              onRefresh={fetchTransactions}
+            <Route
+              path="/rounds"
+              element={<RoundsLedgerTab history={history} onRefresh={fetchHistory} />}
             />
-          )}
+            <Route
+              path="/transactions"
+              element={<TransactionsTab transactions={transactions} onRefresh={fetchTransactions} />}
+            />
+            <Route path="*" element={<Navigate to="/overview" replace />} />
+          </Routes>
         </main>
       </div>
 
@@ -533,9 +571,10 @@ export default function AdminApp() {
           <div className="bg-[#141824] border border-white/10 rounded-3xl max-w-sm w-full p-6 text-white shadow-2xl relative">
             <button
               onClick={() => setAdjustModalUser(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white text-xl font-bold p-1 rounded-lg"
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+              aria-label="Close"
             >
-              ✕
+              <X size={16} strokeWidth={2.25} />
             </button>
 
             <h3 className="text-base font-bold mb-1">Adjust Pilot Balance</h3>

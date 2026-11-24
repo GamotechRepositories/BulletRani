@@ -19,6 +19,7 @@ import {
   notifyRoundEnded
 } from './providerSdk';
 import SessionGate from './components/SessionGate';
+import { ToastStack } from './components/Toast';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000';
@@ -51,7 +52,9 @@ export default function App() {
 
   // Active bets per panel (key: panelId -> bet object)
   const [activeBets, setActiveBets] = useState({});
-  const [bet2Collapsed, setBet2Collapsed] = useState(false);
+  const [bet2Collapsed, setBet2Collapsed] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
 
   // Modals
   const [showTop20, setShowTop20] = useState(false);
@@ -61,6 +64,16 @@ export default function App() {
   const [selectedRoundForVerify, setSelectedRoundForVerify] = useState(null);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = (message, type = 'error') => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((prev) => [...prev.slice(-2), { id, message, type }]);
+  };
+
+  const dismissToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Phase 3 boot: validate sessionToken from launchUrl (or local demo if absent)
   useEffect(() => {
@@ -294,7 +307,7 @@ export default function App() {
           setUser(prev => ({ ...prev, balance: res.newBalance }));
         }
       } else {
-        alert(res?.message || 'Failed to place bet');
+        showToast(res?.message || 'Failed to place bet', 'error');
       }
     });
   };
@@ -315,6 +328,8 @@ export default function App() {
         if (res.newBalance != null) {
           setUser(prev => ({ ...prev, balance: res.newBalance }));
         }
+      } else if (res?.message) {
+        showToast(res.message, 'error');
       }
     });
   };
@@ -348,6 +363,7 @@ export default function App() {
 
   return (
     <div className="h-dvh max-h-dvh bg-[#050b14] text-gray-100 flex flex-col font-sans select-none antialiased relative safe-area overflow-hidden">
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
       {providerMode && (
         <div className="absolute top-2 right-2 z-50 text-[10px] uppercase tracking-widest text-emerald-400/80 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-0.5">
           Provider
@@ -370,8 +386,8 @@ export default function App() {
       {/* Mobile: this pane scrolls. Desktop: no page scroll, side layout */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y md:overflow-hidden md:flex md:flex-row p-1.5 sm:p-2 md:p-3 gap-1.5 md:gap-3 z-10">
         <div className="flex flex-col gap-1.5 md:gap-3 min-w-0 md:flex-1 md:min-h-0 md:overflow-hidden md:h-full">
-          {/* Stage ~16:9 on mobile like Aviator */}
-          <div className="w-full aspect-[16/9] md:aspect-auto md:h-auto md:min-h-0 md:flex-1 overflow-hidden shrink-0 rounded-lg md:rounded-xl">
+          {/* Stage: taller on phones so bike/scene breathe; desktop fills column */}
+          <div className="w-full aspect-[16/10] min-h-[200px] max-h-[42vh] sm:max-h-none md:aspect-auto md:h-auto md:min-h-0 md:max-h-none md:flex-1 overflow-hidden shrink-0 rounded-lg md:rounded-xl">
             <RikshaCanvas
               state={gameState}
               multiplier={multiplier}
@@ -413,8 +429,8 @@ export default function App() {
             />
           </div>
 
-          {/* Players under bets on mobile — scrolls with the pane above */}
-          <div className="md:hidden w-full h-[380px] shrink-0 pb-6">
+          {/* Players under bets on mobile — compact so stage + bets stay in view */}
+          <div className="md:hidden w-full h-[min(240px,38vh)] shrink-0 pb-8">
             <TopGunPlayersList allBets={allBets} currentUserId={user?.id} />
           </div>
         </div>

@@ -39,9 +39,9 @@ public class AuthController {
 
   @PostMapping("/login")
   public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
-    String login = body.get("login");
+    String login = firstNonBlank(body.get("login"), body.get("username"), body.get("email"));
     String password = body.get("password");
-    if (login == null || password == null) {
+    if (login == null || password == null || password.isBlank()) {
       return ResponseEntity.badRequest().body(Map.of("error", "Login and password required"));
     }
     User user = db.findByLogin(login);
@@ -52,6 +52,14 @@ public class AuthController {
       return ResponseEntity.status(403).body(Map.of("error", "Account suspended. Contact support."));
     }
     return ResponseEntity.ok(Map.of("success", true, "token", jwt.issue(user), "user", publicUser(user)));
+  }
+
+  private static String firstNonBlank(String... values) {
+    if (values == null) return null;
+    for (String v : values) {
+      if (v != null && !v.isBlank()) return v.trim();
+    }
+    return null;
   }
 
   @GetMapping("/me")

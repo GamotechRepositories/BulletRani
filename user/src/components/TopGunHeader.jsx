@@ -22,12 +22,12 @@ function CheckeredLogo() {
           }}
         />
         <div className="absolute inset-0 flex items-center justify-center bg-black/45">
-          <span className="font-black text-white/90 text-xs sm:text-sm tracking-tighter">ax</span>
+          <span className="font-black text-white/90 text-[10px] sm:text-xs tracking-tight">BR</span>
         </div>
       </div>
       <div className="leading-none hidden md:block">
         <div className="font-black text-white text-base tracking-tight">
-          Riksha<span className="text-gray-300">X</span>
+          Bullet<span className="text-red-400"> Rani</span>
         </div>
         <div className="text-[9px] font-bold text-gray-500 uppercase tracking-[0.18em] mt-0.5">
           Crash Race
@@ -89,7 +89,7 @@ export default function TopGunHeader({
   });
 
   return (
-    <header className="w-full bg-[#0d0f12]/95 border-b border-white/[0.06] px-2 sm:px-4 py-1.5 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-3 select-none z-30 shrink-0 safe-top">
+    <header className="w-full bg-[#0d0f12]/95 border-b border-white/[0.06] px-1.5 sm:px-4 py-1.5 sm:py-2.5 flex items-center justify-between gap-1 sm:gap-3 select-none z-30 shrink-0 safe-top">
       <CheckeredLogo />
 
       <div className="relative flex-1 min-w-0 max-w-3xl mx-0.5 sm:mx-2">
@@ -165,16 +165,16 @@ export default function TopGunHeader({
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
         <button
           onClick={onOpenWallet}
-          className="flex items-center gap-1 sm:gap-2 bg-[#14161a] border border-white/10 rounded-full pl-1.5 sm:pl-2.5 pr-1 py-1 cursor-pointer"
+          className="flex items-center gap-0.5 sm:gap-2 bg-[#14161a] border border-white/10 rounded-full pl-1.5 sm:pl-2.5 pr-1 py-1 cursor-pointer"
         >
-          <IconWallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300" />
-          <span className="font-extrabold text-white text-[10px] sm:text-sm font-mono tracking-tight max-w-[72px] sm:max-w-none truncate">
+          <IconWallet className="hidden xs:block w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300 max-[380px]:hidden" />
+          <span className="font-extrabold text-white text-[10px] sm:text-sm font-mono tracking-tight max-w-[64px] sm:max-w-none truncate">
             ₹{shortBalance}
           </span>
-          <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[#28a700] text-white flex items-center justify-center">
+          <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[#28a700] text-white flex items-center justify-center shrink-0">
             <IconPlus className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
           </span>
         </button>
@@ -185,7 +185,7 @@ export default function TopGunHeader({
           aria-label={username}
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden border border-white/15 bg-black/60">
-            <img src="/bike.png" alt="" className="w-full h-full object-cover scale-150" />
+            <img src="/bike.png" alt="" className="w-full h-full object-contain p-0.5" />
           </div>
           <IconChevronDown className="hidden sm:block w-3 h-3 text-gray-400" />
         </button>

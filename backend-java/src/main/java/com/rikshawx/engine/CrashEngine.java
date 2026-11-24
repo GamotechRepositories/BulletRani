@@ -27,6 +27,10 @@ public class CrashEngine {
   private boolean awaitingResume = false;
   private Double nextCrashOverride;
   private Double currentCrashOverride;
+  /** Provably-fair crash for the round (used whenever real players bet). */
+  private double fairCrashMultiplier = 1.00;
+  /** True when admin set next-crash for this round. */
+  private boolean adminForcedCrash = false;
   private double countdownSeconds = 5;
   private long roundStartTime;
   private String chainTip = "GENESIS";
@@ -112,6 +116,7 @@ public class CrashEngine {
     activeBets.clear();
     currentMultiplier = 1.00;
     currentCrashOverride = null;
+    adminForcedCrash = false;
 
     long roundNumber = db.maxRoundNumber() + 1;
     String serverSeed = ProvablyFair.generateServerSeed();
@@ -121,10 +126,12 @@ public class CrashEngine {
     Map<String, Object> calc = ProvablyFair.calculateMultiplier(serverSeed, clientSeed, houseEdge, nonce);
     double crashMultiplier = ((Number) calc.get("multiplier")).doubleValue();
     String hash = (String) calc.get("hash");
+    fairCrashMultiplier = crashMultiplier;
 
     if (nextCrashOverride != null) {
       crashMultiplier = nextCrashOverride;
       currentCrashOverride = crashMultiplier;
+      adminForcedCrash = true;
       nextCrashOverride = null;
     }
 
@@ -207,6 +214,8 @@ public class CrashEngine {
     state = "FLYING";
     roundStartTime = System.currentTimeMillis();
     currentMultiplier = 1.00;
+    // Real bets → provably-fair calc; bots-only → entertainment crash
+    resolveCrashTargetAtLaunch();
     db.setRoundInProgress(currentRound.id);
 
     Map<String, Object> started = new LinkedHashMap<>();
@@ -234,6 +243,43 @@ public class CrashEngine {
       tick.put("elapsedMs", elapsed);
       bus.emit("round:tick", tick);
     }, 0, 35, TimeUnit.MILLISECONDS);
+  }
+
+  private boolean hasRealPlayerBets() {
+    for (ActiveBet b : activeBets.values()) {
+      if (!b.isBot && "active".equals(b.status)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Real player bets → use ProvablyFair house-edge calculation.
+   * Bots-only → entertainment crash (usually 10x–25x+, rarely 1x–2x).
+   * Admin next-crash override always wins.
+   */
+  private void resolveCrashTargetAtLaunch() {
+    if (currentRound == null) return;
+    if (adminForcedCrash) return;
+
+    if (hasRealPlayerBets()) {
+      currentCrashOverride = null;
+      currentRound.crashMultiplier = fairCrashMultiplier;
+      return;
+    }
+
+    ThreadLocalRandom r = ThreadLocalRandom.current();
+    double roll = r.nextDouble();
+    double target;
+    if (roll < 0.14) {
+      target = 1.00 + r.nextDouble() * 1.00; // few early rugs
+    } else if (roll < 0.32) {
+      target = 25.0 + r.nextDouble() * 40.0; // past 25x
+    } else {
+      target = 10.05 + r.nextDouble() * 14.95; // 10x–25x
+    }
+    target = DataStore.round2(Math.max(1.00, target));
+    currentRound.crashMultiplier = target;
+    currentCrashOverride = target;
   }
 
   private void processAutoCashouts(double mult) {
@@ -570,6 +616,7 @@ public class CrashEngine {
   public synchronized Map<String, Object> setCurrentCrashTarget(double mult) {
     if (mult < 1.0) return Map.of("success", false, "message", "Multiplier must be >= 1.00");
     currentCrashOverride = DataStore.round2(mult);
+    adminForcedCrash = true;
     if (currentRound != null) currentRound.crashMultiplier = currentCrashOverride;
     if ("FLYING".equals(state) && currentMultiplier >= currentCrashOverride) {
       return forceCrash(currentCrashOverride);
@@ -579,7 +626,10 @@ public class CrashEngine {
   }
 
   public synchronized Map<String, Object> clearCrashOverrides() {
-    nextCrashOverride = null; currentCrashOverride = null;
+    nextCrashOverride = null;
+    currentCrashOverride = null;
+    adminForcedCrash = false;
+    if (currentRound != null) currentRound.crashMultiplier = fairCrashMultiplier;
     bus.emit("admin:engine", getAdminEngineState());
     return Map.of("success", true);
   }

@@ -6,22 +6,31 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AppProperties {
   private String jwtSecret = "aviator_super_secret_jwt_key_2026";
   private int jwtDays = 7;
-  private String storePath = "../backend/data/store.json";
   private String socketHost = "0.0.0.0";
   private int socketPort = 5001;
   private final Provider provider = new Provider();
+  private final Mongodb mongodb = new Mongodb();
 
   public String getJwtSecret() { return jwtSecret; }
   public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
   public int getJwtDays() { return jwtDays; }
   public void setJwtDays(int jwtDays) { this.jwtDays = jwtDays; }
-  public String getStorePath() { return storePath; }
-  public void setStorePath(String storePath) { this.storePath = storePath; }
   public String getSocketHost() { return socketHost; }
   public void setSocketHost(String socketHost) { this.socketHost = socketHost; }
   public int getSocketPort() { return socketPort; }
   public void setSocketPort(int socketPort) { this.socketPort = socketPort; }
   public Provider getProvider() { return provider; }
+  public Mongodb getMongodb() { return mongodb; }
+
+  public static class Mongodb {
+    private String uri = "";
+    private String database = "bullet_rani";
+
+    public String getUri() { return uri; }
+    public void setUri(String uri) { this.uri = uri; }
+    public String getDatabase() { return database; }
+    public void setDatabase(String database) { this.database = database; }
+  }
 
   public static class Provider {
     /** When true, bets debit/credit via Provider Game SDK instead of local wallet. */

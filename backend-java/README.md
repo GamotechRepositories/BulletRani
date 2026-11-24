@@ -38,11 +38,10 @@ mvnw.cmd spring-boot:run
 Client launches with `?sessionToken=...` and uses `@gamotech/game-sdk-client` for session + round events.
 
 ## Data
-Uses the same JSON store as Node by default:
+Persists to **MongoDB** (`MONGODB_URI` + `MONGODB_DATABASE` in `.env`).
+The legacy `backend/data/store.json` file is no longer written.
 
-`../backend/data/store.json`
-
-Default admin: `admin@aviator.local` / `admin123`
+Default admin: `admin` / `123456`
 
 ## Stack
 - Spring Boot 4 (Web MVC)
