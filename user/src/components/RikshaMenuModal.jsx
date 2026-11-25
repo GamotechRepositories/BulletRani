@@ -6,10 +6,42 @@ import {
   IconVolumeMute
 } from './Icons';
 
+function ToggleRow({ label, hint, enabled, onToggle }) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/5">
+      <div>
+        <div className="font-semibold text-gray-200">{label}</div>
+        {hint && <div className="text-[10px] text-gray-500 mt-0.5">{hint}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+          enabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-400'
+        }`}
+      >
+        {enabled ? (
+          <>
+            <IconVolumeUp className="w-3.5 h-3.5" />
+            <span>ON</span>
+          </>
+        ) : (
+          <>
+            <IconVolumeMute className="w-3.5 h-3.5" />
+            <span>OFF</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function RikshaMenuModal({
   user,
   soundEnabled,
+  musicEnabled,
   onToggleSound,
+  onToggleMusic,
   onOpenWallet,
   onOpenProvablyFair,
   onOpenHowToPlay,
@@ -40,28 +72,18 @@ export default function RikshaMenuModal({
         </div>
 
         <div className="space-y-2 text-xs">
-          {/* Sound Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/5">
-            <span className="font-semibold text-gray-200">Audio & Sound Effects</span>
-            <button
-              onClick={onToggleSound}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                soundEnabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-400'
-              }`}
-            >
-              {soundEnabled ? (
-                <>
-                  <IconVolumeUp className="w-3.5 h-3.5" />
-                  <span>ON</span>
-                </>
-              ) : (
-                <>
-                  <IconVolumeMute className="w-3.5 h-3.5" />
-                  <span>OFF</span>
-                </>
-              )}
-            </button>
-          </div>
+          <ToggleRow
+            label="Music"
+            hint="Background soundtrack"
+            enabled={musicEnabled}
+            onToggle={onToggleMusic}
+          />
+          <ToggleRow
+            label="Sound"
+            hint="Bike, crash & UI effects"
+            enabled={soundEnabled}
+            onToggle={onToggleSound}
+          />
 
           {/* Wallet */}
           <button

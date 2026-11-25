@@ -20,10 +20,18 @@ import {
 } from './providerSdk';
 import SessionGate from './components/SessionGate';
 import { ToastStack } from './components/Toast';
+import { API_BASE, SOCKET_SERVER } from './config';
+import {
+  loadAudioPrefs,
+  saveAudioPrefs,
+  cacheLeaderboard,
+  readCachedLeaderboard,
+  cacheRecentHistory,
+  readCachedHistory
+} from './assetCache';
 import './App.css';
 
-const API_BASE = 'http://localhost:5000';
-const SOCKET_SERVER = 'http://localhost:5001';
+const cachedAudio = loadAudioPrefs();
 
 export default function App() {
   const [socket, setSocket] = useState(null);
@@ -38,7 +46,8 @@ export default function App() {
     role: 'player'
   });
   const [token, setToken] = useState('demo_token');
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(cachedAudio.soundEnabled);
+  const [musicEnabled, setMusicEnabled] = useState(cachedAudio.musicEnabled);
   const [vehicle, setVehicle] = useState('bike'); // Royal Enfield rider matching master design
 
   // Engine state
@@ -46,9 +55,9 @@ export default function App() {
   const [multiplier, setMultiplier] = useState(1.00);
   const [roundNumber, setRoundNumber] = useState(1001);
   const [countdownProgress, setCountdownProgress] = useState(1);
-  const [recentHistory, setRecentHistory] = useState([]);
+  const [recentHistory, setRecentHistory] = useState(() => readCachedHistory());
   const [allBets, setAllBets] = useState([]);
-  const [topWins, setTopWins] = useState([]);
+  const [topWins, setTopWins] = useState(() => readCachedLeaderboard() || []);
 
   // Active bets per panel (key: panelId -> bet object)
   const [activeBets, setActiveBets] = useState({});
@@ -74,6 +83,35 @@ export default function App() {
   const dismissToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // Apply cached audio prefs once, then unlock on first gestures
+  useEffect(() => {
+    sound.toggleSfx(soundEnabled);
+    sound.toggleMusic(musicEnabled);
+    const unlock = () => { sound.unlock(); };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('keydown', unlock);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') sound.unlock();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('keydown', unlock);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot prefs only
+  }, []);
+
+  useEffect(() => {
+    saveAudioPrefs({ musicEnabled, soundEnabled });
+  }, [musicEnabled, soundEnabled]);
+
+  useEffect(() => {
+    cacheRecentHistory(recentHistory);
+  }, [recentHistory]);
 
   // Phase 3 boot: validate sessionToken from launchUrl (or local demo if absent)
   useEffect(() => {
@@ -273,7 +311,12 @@ export default function App() {
   useEffect(() => {
     fetch(`${API_BASE}/api/game/leaderboard`)
       .then(res => res.json())
-      .then(d => { if (d.topWins) setTopWins(d.topWins); })
+      .then(d => {
+        if (d.topWins) {
+          setTopWins(d.topWins);
+          cacheLeaderboard(d.topWins);
+        }
+      })
       .catch(() => { });
   }, [gameState]);
 
@@ -346,7 +389,24 @@ export default function App() {
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
+    sound.toggleSfx(next);
+    if (next) sound.unlock();
+  };
+
+  const toggleMusic = () => {
+    const next = !musicEnabled;
+    setMusicEnabled(next);
+    sound.toggleMusic(next);
+    if (next) sound.unlock();
+  };
+
+  /** Header mute: turns music + sound on/off together */
+  const toggleAllAudio = () => {
+    const next = !(soundEnabled || musicEnabled);
+    setSoundEnabled(next);
+    setMusicEnabled(next);
     sound.toggle(next);
+    if (next) sound.unlock();
   };
 
   if (bootState === 'loading') {
@@ -393,8 +453,8 @@ export default function App() {
               multiplier={multiplier}
               countdownProgress={countdownProgress}
               vehicle={vehicle}
-              onToggleSound={toggleSound}
-              soundEnabled={soundEnabled}
+              onToggleSound={toggleAllAudio}
+              soundEnabled={soundEnabled || musicEnabled}
               onOpenMenu={() => setShowMenu(true)}
             />
           </div>
@@ -453,7 +513,9 @@ export default function App() {
         <RikshaMenuModal
           user={user}
           soundEnabled={soundEnabled}
+          musicEnabled={musicEnabled}
           onToggleSound={toggleSound}
+          onToggleMusic={toggleMusic}
           onOpenWallet={() => setShowWallet(true)}
           onOpenProvablyFair={() => {
             setSelectedRoundForVerify(recentHistory[recentHistory.length - 1] || null);

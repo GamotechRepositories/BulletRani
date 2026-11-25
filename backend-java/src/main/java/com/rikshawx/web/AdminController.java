@@ -255,6 +255,99 @@ public class AdminController {
     } catch (Exception e) { return deny(e); }
   }
 
+  /**
+   * List integrated wallet sources (local + configured providers) with volume / payout / GGR.
+   */
+  @GetMapping("/providers")
+  public ResponseEntity<?> listProviders(@RequestHeader("Authorization") String auth) {
+    try {
+      requireAdmin(auth);
+      Map<String, Map<String, Double>> finance = db.sumFinanceByWalletSource();
+      List<Map<String, Object>> providers = new ArrayList<>();
+
+      Map<String, Double> localFin = finance.getOrDefault("local", Map.of(
+          "volume", 0.0, "payout", 0.0, "ggr", 0.0, "rtp", 0.0, "bets", 0.0, "wins", 0.0));
+      Map<String, Object> local = new LinkedHashMap<>();
+      local.put("id", "local");
+      local.put("name", "Local Wallet");
+      local.put("type", "local");
+      local.put("status", "active");
+      local.put("gameCode", null);
+      local.put("apiUrl", null);
+      local.put("totalVolume", localFin.getOrDefault("volume", 0.0));
+      local.put("totalPayout", localFin.getOrDefault("payout", 0.0));
+      local.put("grossGamingRevenue", localFin.getOrDefault("ggr", 0.0));
+      local.put("actualRTP", localFin.getOrDefault("rtp", 0.0));
+      local.put("betCount", localFin.getOrDefault("bets", 0.0).longValue());
+      local.put("winCount", localFin.getOrDefault("wins", 0.0).longValue());
+      providers.add(local);
+
+      Map<String, Object> cfg = provider.getPublicConfig();
+      String pid = String.valueOf(cfg.getOrDefault("id", "provider"));
+      Map<String, Double> pFin = finance.getOrDefault(pid, Map.of(
+          "volume", 0.0, "payout", 0.0, "ggr", 0.0, "rtp", 0.0, "bets", 0.0, "wins", 0.0));
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("id", pid);
+      row.put("name", cfg.getOrDefault("name", pid));
+      row.put("type", "provider");
+      row.put("status", Boolean.TRUE.equals(cfg.get("active")) ? "active"
+          : Boolean.TRUE.equals(cfg.get("enabled")) ? "configured" : "disabled");
+      row.put("gameCode", cfg.get("gameCode"));
+      row.put("apiUrl", cfg.get("apiUrl"));
+      row.put("tableId", cfg.get("tableId"));
+      row.put("totalVolume", pFin.getOrDefault("volume", 0.0));
+      row.put("totalPayout", pFin.getOrDefault("payout", 0.0));
+      row.put("grossGamingRevenue", pFin.getOrDefault("ggr", 0.0));
+      row.put("actualRTP", pFin.getOrDefault("rtp", 0.0));
+      row.put("betCount", pFin.getOrDefault("bets", 0.0).longValue());
+      row.put("winCount", pFin.getOrDefault("wins", 0.0).longValue());
+      providers.add(row);
+
+      // Any historical wallet_source keys not already listed
+      for (Map.Entry<String, Map<String, Double>> e : finance.entrySet()) {
+        String key = e.getKey();
+        if ("local".equals(key) || pid.equals(key)) continue;
+        Map<String, Double> fin = e.getValue();
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("id", key);
+        extra.put("name", key);
+        extra.put("type", "provider");
+        extra.put("status", "historical");
+        extra.put("gameCode", null);
+        extra.put("apiUrl", null);
+        extra.put("totalVolume", fin.getOrDefault("volume", 0.0));
+        extra.put("totalPayout", fin.getOrDefault("payout", 0.0));
+        extra.put("grossGamingRevenue", fin.getOrDefault("ggr", 0.0));
+        extra.put("actualRTP", fin.getOrDefault("rtp", 0.0));
+        extra.put("betCount", fin.getOrDefault("bets", 0.0).longValue());
+        extra.put("winCount", fin.getOrDefault("wins", 0.0).longValue());
+        providers.add(extra);
+      }
+
+      double grossAll = providers.stream()
+          .mapToDouble(p -> ((Number) p.getOrDefault("grossGamingRevenue", 0)).doubleValue())
+          .sum();
+      double volumeAll = providers.stream()
+          .mapToDouble(p -> ((Number) p.getOrDefault("totalVolume", 0)).doubleValue())
+          .sum();
+      double payoutAll = providers.stream()
+          .mapToDouble(p -> ((Number) p.getOrDefault("totalPayout", 0)).doubleValue())
+          .sum();
+
+      Map<String, Object> totals = new LinkedHashMap<>();
+      totals.put("totalVolume", DataStore.round2(volumeAll));
+      totals.put("totalPayout", DataStore.round2(payoutAll));
+      totals.put("grossGamingRevenue", DataStore.round2(grossAll));
+      totals.put("actualRTP", volumeAll > 0 ? DataStore.round2((payoutAll / volumeAll) * 100) : 0);
+
+      Map<String, Object> out = new LinkedHashMap<>();
+      out.put("success", true);
+      out.put("providers", providers);
+      out.put("totals", totals);
+      return ResponseEntity.ok(out);
+    } catch (Exception e) { return deny(e); }
+  }
+
   @PutMapping("/provider")
   public ResponseEntity<?> saveProvider(@RequestHeader("Authorization") String auth,
                                         @RequestBody Map<String, Object> body) {

@@ -10,7 +10,7 @@ export default function OverviewTab({ stats, settings, liveRound }) {
   }, 0);
 
   return (
-    <div className="space-y-6 select-none animate-fade-in">
+    <div className="space-y-6  animate-fade-in">
       {/* 4 Financial Key Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-[#121622] border border-white/10 p-5 rounded-2xl shadow-lg">

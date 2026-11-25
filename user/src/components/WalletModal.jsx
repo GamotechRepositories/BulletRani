@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 
 export default function WalletModal({ balance, token, onBalanceUpdated, onClose }) {
   const [tab, setTab] = useState('deposit'); // 'deposit' | 'withdraw' | 'transactions'
@@ -19,7 +20,7 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
 
   const fetchTransactions = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/wallet/transactions', {
+      const res = await fetch(`${API_BASE}/api/wallet/transactions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -34,7 +35,7 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
     setLoading(true);
     setStatusMsg(null);
     try {
-      const res = await fetch('http://localhost:5000/api/wallet/deposit', {
+      const res = await fetch(`${API_BASE}/api/wallet/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -64,7 +65,7 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
     setLoading(true);
     setStatusMsg(null);
     try {
-      const res = await fetch('http://localhost:5000/api/wallet/withdraw', {
+      const res = await fetch(`${API_BASE}/api/wallet/withdraw`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

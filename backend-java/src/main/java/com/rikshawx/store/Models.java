@@ -47,6 +47,9 @@ public final class Models {
     @Field("cashout_multiplier") public Double cashoutMultiplier;
     @Field("win_amount") public double winAmount;
     public String status;
+    /** local | provider-id (e.g. dpbossking) */
+    @Field("wallet_source") public String walletSource;
+    @Field("provider_code") public String providerCode;
     @Field("created_at") public String createdAt;
   }
 

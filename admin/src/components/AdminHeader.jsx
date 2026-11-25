@@ -3,7 +3,7 @@ import { Menu, Shield, LogOut } from 'lucide-react';
 
 export default function AdminHeader({ adminUser, liveRound, onLogout, onMenuToggle }) {
   return (
-    <header className="h-16 bg-[#0f131d] border-b border-white/10 px-4 sm:px-6 flex items-center justify-between shrink-0 select-none z-20">
+    <header className="h-16 bg-[#0f131d] border-b border-white/10 px-4 sm:px-6 flex items-center justify-between shrink-0  z-20">
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"

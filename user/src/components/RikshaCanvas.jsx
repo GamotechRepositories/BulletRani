@@ -40,9 +40,14 @@ export default function RikshaCanvas({
     x: 0,
     y: 0,
     mult: 1,
+    hitBurst: false,
+    lastTs: 0,
+    phys: null,
     particles: [],
     sparks: [],
-    shards: []
+    shards: [],
+    dust: [],
+    rocks: []
   });
 
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -286,212 +291,422 @@ export default function RikshaCanvas({
 
     const x = lastVehicleRef.current.x || fallbackX;
     const y = lastVehicleRef.current.y || fallbackY;
+    const s = sceneScale;
+    const stoneX = x + Math.max(70, 96 * s);
+    const stoneY = y + 8 * s;
+    // Contact = front of bike against left face of boulder
+    const contactX = stoneX - 52 * s;
+
     crash.seeded = true;
+    crash.hitBurst = false;
     crash.t0 = performance.now();
+    crash.lastTs = crash.t0;
     crash.x = x;
     crash.y = y;
     crash.mult = mult;
+    crash.particles = [];
+    crash.sparks = [];
+    crash.shards = [];
+    crash.dust = [];
+    crash.rocks = [];
+    // Simple rigid-body-ish sim: run into rock → stop → tip over → scrape on asphalt
+    crash.phys = {
+      x,
+      y,
+      vx: Math.max(420, 520 * s), // px/s toward stone
+      vy: 0,
+      rot: -0.06,
+      vr: 0,
+      squash: 1,
+      groundY: y + 6 * s,
+      stoneX,
+      stoneY,
+      contactX,
+      phase: 'run', // run | crush | tip | slide
+      hitAt: 0,
+      scrapeDust: 0
+    };
+  };
 
-    crash.particles = Array.from({ length: 28 }).map(() => {
-      const ang = -Math.PI * 0.15 - Math.random() * Math.PI * 0.7;
-      const spd = (2.5 + Math.random() * 7) * sceneScale;
+  const burstImpactDebris = (crash, stoneX, stoneY, sceneScale) => {
+    if (crash.hitBurst) return;
+    crash.hitBurst = true;
+    const s = sceneScale;
+    const cx = stoneX - 40 * s;
+    const cy = stoneY - 6 * s;
+
+    crash.dust = Array.from({ length: 18 }).map(() => {
+      const ang = -Math.PI + Math.random() * Math.PI;
+      const spd = (0.8 + Math.random() * 3.2) * s;
       return {
-        x,
-        y: y - 10 * sceneScale,
-        vx: Math.cos(ang) * spd + 1.5,
+        x: cx + (Math.random() - 0.5) * 16 * s,
+        y: cy,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 0.8 * s,
+        life: 0.9 + Math.random() * 0.8,
+        size: (8 + Math.random() * 16) * s,
+        color: Math.random() > 0.5 ? 'rgba(110,100,85,0.5)' : 'rgba(70,65,55,0.45)'
+      };
+    });
+
+    crash.rocks = Array.from({ length: 12 }).map(() => {
+      const ang = -Math.PI * 0.85 + Math.random() * Math.PI * 0.7;
+      const spd = (2 + Math.random() * 6) * s;
+      return {
+        x: cx,
+        y: cy - 8 * s,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 1.5 * s,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.35,
+        size: (2.5 + Math.random() * 7) * s,
+        life: 0.9 + Math.random() * 0.6,
+        color: Math.random() > 0.5 ? '#6b7280' : '#4b5563'
+      };
+    });
+
+    crash.sparks = Array.from({ length: 14 }).map(() => {
+      const ang = -Math.PI * 0.15 - Math.random() * Math.PI * 0.55;
+      const spd = (4 + Math.random() * 9) * s;
+      return {
+        x: cx,
+        y: cy + 4 * s,
+        vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        life: 0.55 + Math.random() * 0.7,
-        size: (2 + Math.random() * 5) * sceneScale,
-        color: Math.random() > 0.45 ? '#ff6b3d' : Math.random() > 0.5 ? '#fbbf24' : '#1a1a1a'
+        life: 0.15 + Math.random() * 0.3,
+        len: (4 + Math.random() * 10) * s
       };
     });
 
-    crash.sparks = Array.from({ length: 18 }).map(() => {
-      const ang = -Math.PI * 0.05 - Math.random() * Math.PI * 0.5;
-      const spd = (4 + Math.random() * 9) * sceneScale;
-      return {
-        x: x + (Math.random() - 0.5) * 20,
-        y: y + 4 * sceneScale,
-        vx: Math.cos(ang) * spd + 2,
-        vy: Math.sin(ang) * spd * 0.6,
-        life: 0.25 + Math.random() * 0.45,
-        len: (6 + Math.random() * 14) * sceneScale
-      };
-    });
+    crash.shards = [];
+    crash.particles = [];
+  };
 
-    crash.shards = Array.from({ length: 8 }).map(() => ({
-      x: x + (Math.random() - 0.5) * 16,
-      y: y - 8 * sceneScale,
-      vx: (Math.random() - 0.2) * 6 * sceneScale,
-      vy: (-2 - Math.random() * 5) * sceneScale,
-      rot: Math.random() * Math.PI,
-      vr: (Math.random() - 0.5) * 0.35,
-      w: (4 + Math.random() * 10) * sceneScale,
-      h: (2 + Math.random() * 5) * sceneScale,
-      life: 0.7 + Math.random() * 0.6
-    }));
+  const stepCrashPhysics = (crash, sceneScale, now) => {
+    const p = crash.phys;
+    if (!p) return;
+    const dt = Math.min(0.033, Math.max(0.008, (now - crash.lastTs) / 1000));
+    crash.lastTs = now;
+    const s = sceneScale;
+
+    // Sprite is a seated rider — never rotate near 90° (looks like standing on the nose).
+    // Final rest = low crumple against the stone (~20–35° lean).
+    const REST_ROT = 0.42;
+
+    if (p.phase === 'run') {
+      p.x += p.vx * dt;
+      p.y = crash.y + Math.sin(now * 0.05) * 0.8 * s;
+      p.rot = -0.04 - Math.min(0.1, (p.x - crash.x) / (220 * s));
+      if (p.x >= p.contactX) {
+        p.x = p.contactX;
+        p.phase = 'crush';
+        p.hitAt = now;
+        p.vx = -70 * s;
+        p.vy = -40 * s; // tiny hop only — stay near asphalt
+        p.vr = 2.2; // pitch into stone, not a vertical endo
+        p.squash = 0.82;
+        burstImpactDebris(crash, p.stoneX, p.stoneY, sceneScale);
+      }
+      return;
+    }
+
+    if (p.phase === 'crush') {
+      const age = (now - p.hitAt) / 1000;
+      p.squash = 0.82 + Math.min(0.18, age * 2.5);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 1100 * s * dt;
+      p.vx *= 0.88;
+      p.rot += p.vr * dt;
+      p.vr *= 0.94;
+      // Cap so we never go vertical
+      if (p.rot > 0.55) p.rot = 0.55;
+      if (p.rot < -0.35) p.rot = -0.35;
+      if (p.y > p.groundY) {
+        p.y = p.groundY;
+        p.vy = 0;
+      }
+      if (age > 0.12) {
+        p.phase = 'settle';
+        p.vx = -25 * s;
+        p.vr = (REST_ROT - p.rot) * 3;
+        p.squash = 1;
+        p.scrapeDust = 1;
+      }
+      return;
+    }
+
+    // settle — ease into crumpled lean against the rock, low on the road
+    {
+      p.x += p.vx * dt;
+      p.vx *= Math.pow(0.08, dt);
+      p.rot += (REST_ROT - p.rot) * Math.min(1, 6 * dt);
+      p.vr *= 0.85;
+      // Sink slightly so wheels/body read as on asphalt
+      const sink = Math.min(1, (now - p.hitAt) / 1000);
+      p.y = p.groundY + 4 * s + sink * 6 * s;
+      // Keep pressed near stone face
+      const minX = p.contactX - 18 * s;
+      const maxX = p.contactX + 6 * s;
+      if (p.x < minX) p.x = minX;
+      if (p.x > maxX) p.x = maxX;
+      p.scrapeDust = Math.min(1, Math.abs(p.vx) / (30 * s));
+      if (Math.abs(p.vx) < 3 * s) p.vx = 0;
+    }
+  };
+
+  /** Low, heavy roadside boulder — planted, not floating */
+  const drawCrashStone = (ctx, stoneX, stoneY, sceneScale, impact = 0) => {
+    const s = sceneScale;
+    const shake = impact > 0.05 ? Math.sin(impact * 70) * 4 * s * impact : 0;
+    const sx = stoneX + shake;
+    const sy = stoneY;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + 20 * s, 70 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fill();
+    ctx.restore();
+
+    // Wider / lower rock (looks like it sits ON the road)
+    const pts = [
+      [-62, 18], [-58, -2], [-42, -28], [-16, -44],
+      [10, -50], [36, -42], [56, -22], [66, 2],
+      [60, 22], [28, 30], [-8, 32], [-44, 26]
+    ];
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(s, s);
+
+    const grad = ctx.createLinearGradient(-60, -50, 40, 30);
+    grad.addColorStop(0, '#a8a29e');
+    grad.addColorStop(0.4, '#78716c');
+    grad.addColorStop(0.75, '#57534e');
+    grad.addColorStop(1, '#292524');
+    ctx.beginPath();
+    pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(28,25,23,0.95)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(-20, -30);
+    ctx.lineTo(6, -46);
+    ctx.lineTo(30, -34);
+    ctx.lineTo(10, -14);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(231,229,228,0.28)';
+    ctx.fill();
+
+    // Hit face
+    ctx.beginPath();
+    ctx.moveTo(-62, 12);
+    ctx.lineTo(-50, -14);
+    ctx.lineTo(-22, -20);
+    ctx.lineTo(-30, 20);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(28,25,23,0.6)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-4, -44);
+    ctx.lineTo(2, -6);
+    ctx.lineTo(18, 16);
+    ctx.moveTo(2, -6);
+    ctx.lineTo(-24, 8);
+    ctx.stroke();
+
+    if (impact > 0.2) {
+      ctx.strokeStyle = `rgba(255, 236, 200, ${0.65 * impact})`;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(-50, 0);
+      ctx.lineTo(-32, 8);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   };
 
   const drawCrashSequence = (ctx, width, height, roadTop, sceneScale, mult) => {
     const crash = crashRef.current;
-    const elapsed = (performance.now() - crash.t0) / 1000;
-    const t = Math.min(1, elapsed / 1.35);
-    const ease = 1 - Math.pow(1 - t, 3);
+    const now = performance.now();
+    const elapsed = (now - crash.t0) / 1000;
+    stepCrashPhysics(crash, sceneScale, now);
+    const p = crash.phys;
+    if (!p) return;
 
-    // Broken trail snap
-    const trailEndX = crash.x - Math.max(34, 46 * sceneScale);
-    const trailEndY = crash.y + Math.max(4, 8 * sceneScale);
+    const hitAge = p.phase === 'run' ? 0 : Math.max(0, (now - p.hitAt) / 1000);
+    const hardHit = p.phase === 'run' ? 0 : Math.exp(-hitAge * 9);
+
+    let camX = 0;
+    let camY = 0;
+    if (hardHit > 0.04) {
+      camX = (Math.random() - 0.5) * 16 * sceneScale * hardHit;
+      camY = (Math.random() - 0.5) * 10 * sceneScale * hardHit;
+    }
+
+    ctx.save();
+    ctx.translate(camX, camY);
+
     drawAviatorSpeedCurve(ctx, width, height, roadTop, crash.x, crash.y, crash.mult || mult, sceneScale);
 
-    // Jagged break mark at the tip
+    // Skid growing toward contact
+    const skidEnd = Math.min(p.x, p.contactX);
     ctx.save();
-    ctx.strokeStyle = `rgba(255, 70, 70, ${0.85 * (1 - t * 0.4)})`;
-    ctx.lineWidth = Math.max(2, 2.6 * sceneScale);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(trailEndX - 8, trailEndY - 6);
-    ctx.lineTo(trailEndX + 4, trailEndY + 2);
-    ctx.lineTo(trailEndX - 2, trailEndY + 10);
-    ctx.stroke();
-    ctx.restore();
-
-    // Rubber skid on road
-    ctx.save();
-    ctx.globalAlpha = 0.55 * (1 - t * 0.35);
+    ctx.globalAlpha = 0.75;
     ctx.strokeStyle = '#111';
-    ctx.lineWidth = Math.max(3, 5 * sceneScale);
+    ctx.lineWidth = Math.max(2.2, 3.6 * sceneScale);
     ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(crash.x - 30 * sceneScale, crash.y + 14 * sceneScale);
-    ctx.quadraticCurveTo(
-      crash.x + 20 * sceneScale,
-      crash.y + 18 * sceneScale,
-      crash.x + 70 * ease * sceneScale,
-      crash.y + 22 * sceneScale + Math.sin(elapsed * 8) * 2
-    );
-    ctx.stroke();
+    [-6, 5].forEach((oy) => {
+      ctx.beginPath();
+      ctx.moveTo(crash.x - 36 * sceneScale, crash.y + (14 + oy) * sceneScale * 0.15 + 12 * sceneScale);
+      ctx.lineTo(skidEnd - 8 * sceneScale, p.groundY + 14 * sceneScale + oy * 0.4);
+      ctx.stroke();
+    });
+    // Post-hit scrape mark
+    if (p.phase === 'settle') {
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(p.contactX - 10 * sceneScale, p.groundY + 16 * sceneScale);
+      ctx.lineTo(p.x, p.groundY + 18 * sceneScale);
+      ctx.stroke();
+    }
     ctx.restore();
 
-    // White impact flash
-    if (elapsed < 0.22) {
-      const flash = 1 - elapsed / 0.22;
-      ctx.save();
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.45 * flash})`;
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = `rgba(255, 60, 40, ${0.28 * flash})`;
-      ctx.fillRect(0, 0, width, height);
-      ctx.restore();
+    // Stone first (bike hits INTO it) — always full size, planted
+    drawCrashStone(ctx, p.stoneX, p.stoneY, sceneScale, hardHit);
+
+    // Continuous scrape dust while sliding
+    if (p.phase === 'settle' && p.scrapeDust > 0.15 && Math.random() > 0.55) {
+      crash.dust.push({
+        x: p.x - 10 * sceneScale,
+        y: p.groundY + 8 * sceneScale,
+        vx: (-0.5 - Math.random()) * sceneScale,
+        vy: (-0.4 - Math.random() * 0.8) * sceneScale,
+        life: 0.5 + Math.random() * 0.4,
+        size: (6 + Math.random() * 10) * sceneScale,
+        color: 'rgba(90,85,75,0.4)'
+      });
     }
 
-    // Expanding shock ring
-    if (elapsed < 0.55) {
-      const ringT = elapsed / 0.55;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(crash.x, crash.y - 8 * sceneScale, (18 + ringT * 90) * sceneScale, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255, 120, 70, ${(1 - ringT) * 0.7})`;
-      ctx.lineWidth = Math.max(2, (4 - ringT * 3) * sceneScale);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Tumbling bike wipeout
     const crashBike = bikeImgRef.current;
-    if (crashBike && crashBike.complete && crashBike.naturalWidth && t < 0.92) {
-      const aspect = crashBike.naturalWidth / crashBike.naturalHeight;
-      const maxH = Math.max(56, 100 * sceneScale);
-      const maxW = Math.max(96, 168 * sceneScale);
+    if (crashBike && crashBike.complete && crashBike.naturalWidth) {
+      const aspect = crashBike.naturalWidth / Math.max(1, crashBike.naturalHeight);
+      const maxH = Math.max(64, 115 * sceneScale);
+      const maxW = Math.max(110, 195 * sceneScale);
       let bikeHeight = maxH;
       let bikeWidth = bikeHeight * aspect;
       if (bikeWidth > maxW) {
         bikeWidth = maxW;
         bikeHeight = bikeWidth / aspect;
       }
-      const bx = crash.x + ease * 110 * sceneScale;
-      const by = crash.y - Math.sin(ease * Math.PI) * 42 * sceneScale + ease * 28 * sceneScale;
-      const rot = ease * 1.85;
-      const fade = t > 0.65 ? 1 - (t - 0.65) / 0.27 : 1;
+
+      // Contact shadow on road
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(
+        p.x,
+        p.groundY + 16 * sceneScale,
+        bikeWidth * 0.38,
+        Math.max(3, 5 * sceneScale) * (p.phase === 'settle' ? 1.25 : 1),
+        0, 0, Math.PI * 2
+      );
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fill();
+      ctx.restore();
 
       ctx.save();
-      ctx.globalAlpha = Math.max(0, fade);
-      ctx.translate(bx, by - bikeHeight * 0.2);
-      ctx.rotate(rot);
-      ctx.drawImage(
-        crashBike,
-        -bikeWidth / 2,
-        -bikeHeight / 2,
-        bikeWidth,
-        bikeHeight
-      );
+      ctx.translate(p.x, p.y - bikeHeight * 0.16);
+      ctx.rotate(p.rot);
+      ctx.scale(1, p.squash);
+      ctx.drawImage(crashBike, -bikeWidth / 2, -bikeHeight / 2, bikeWidth, bikeHeight);
       ctx.restore();
     }
 
-    // Smoke / fire particles
-    crash.particles.forEach((p) => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.12 * sceneScale;
-      p.vx *= 0.985;
-      p.life -= 0.016;
-      if (p.life <= 0) return;
+    // Subtle impact flash only (no full-screen cartoon blast)
+    if (hardHit > 0.25) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
-      ctx.fillStyle = p.color;
+      ctx.fillStyle = `rgba(255,255,255,${0.22 * hardHit})`;
+      ctx.fillRect(-camX, -camY, width, height);
+      ctx.restore();
+    }
+
+    (crash.dust || []).forEach((d) => {
+      d.x += d.vx;
+      d.y += d.vy;
+      d.vx *= 0.97;
+      d.vy *= 0.98;
+      d.life -= 0.012;
+      d.size *= 1.01;
+      if (d.life <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(0.45, d.life * 0.45));
+      ctx.fillStyle = d.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * (0.6 + (1 - Math.min(1, p.life)) * 0.8), 0, Math.PI * 2);
+      ctx.ellipse(d.x, d.y, d.size, d.size * 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     });
 
-    // Sparks
-    crash.sparks.forEach((s) => {
-      s.x += s.vx;
-      s.y += s.vy;
-      s.vy += 0.2 * sceneScale;
-      s.life -= 0.022;
-      if (s.life <= 0) return;
+    (crash.rocks || []).forEach((r) => {
+      r.x += r.vx;
+      r.y += r.vy;
+      r.vy += 0.28 * sceneScale;
+      r.rot += r.vr;
+      r.life -= 0.012;
+      if (r.life <= 0) return;
+      // settle on road
+      if (r.y > p.groundY + 18 * sceneScale) {
+        r.y = p.groundY + 18 * sceneScale;
+        r.vy *= -0.2;
+        r.vx *= 0.7;
+      }
       ctx.save();
-      ctx.globalAlpha = Math.max(0, s.life);
-      ctx.strokeStyle = '#ffe08a';
-      ctx.lineWidth = Math.max(1, 1.4 * sceneScale);
+      ctx.globalAlpha = Math.max(0, Math.min(1, r.life));
+      ctx.translate(r.x, r.y);
+      ctx.rotate(r.rot);
+      ctx.fillStyle = r.color;
+      ctx.fillRect(-r.size / 2, -r.size / 2, r.size, r.size * 0.65);
+      ctx.restore();
+    });
+
+    (crash.sparks || []).forEach((sp) => {
+      sp.x += sp.vx;
+      sp.y += sp.vy;
+      sp.vy += 0.25 * sceneScale;
+      sp.life -= 0.028;
+      if (sp.life <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, sp.life);
+      ctx.strokeStyle = '#fde68a';
+      ctx.lineWidth = Math.max(1, 1.3 * sceneScale);
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(s.x - s.vx * 1.4, s.y - s.vy * 1.4);
+      ctx.moveTo(sp.x, sp.y);
+      ctx.lineTo(sp.x - sp.vx * 1.3, sp.y - sp.vy * 1.3);
       ctx.stroke();
       ctx.restore();
     });
 
-    // Metal shards
-    crash.shards.forEach((sh) => {
-      sh.x += sh.vx;
-      sh.y += sh.vy;
-      sh.vy += 0.18 * sceneScale;
-      sh.rot += sh.vr;
-      sh.life -= 0.014;
-      if (sh.life <= 0) return;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(1, sh.life));
-      ctx.translate(sh.x, sh.y);
-      ctx.rotate(sh.rot);
-      ctx.fillStyle = '#9ca3af';
-      ctx.fillRect(-sh.w / 2, -sh.h / 2, sh.w, sh.h);
-      ctx.restore();
-    });
+    ctx.restore();
 
-    // Red edge vignette while crash plays
-    if (elapsed < 1.1) {
-      const v = Math.max(0, 1 - elapsed / 1.1) * 0.55;
+    // Soft vignette — short
+    if (elapsed < 0.9) {
+      const v = Math.max(0, 1 - elapsed / 0.9) * 0.28;
       const vig = ctx.createRadialGradient(
-        width * 0.5,
-        height * 0.45,
-        Math.min(width, height) * 0.2,
-        width * 0.5,
-        height * 0.45,
-        Math.max(width, height) * 0.75
+        width * 0.5, height * 0.45, Math.min(width, height) * 0.22,
+        width * 0.5, height * 0.45, Math.max(width, height) * 0.8
       );
       vig.addColorStop(0, 'rgba(0,0,0,0)');
-      vig.addColorStop(1, `rgba(120, 0, 0, ${v})`);
+      vig.addColorStop(1, `rgba(40, 8, 0, ${v})`);
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, width, height);
     }
@@ -586,8 +801,8 @@ export default function RikshaCanvas({
     // Contain within a box using the image's real aspect — never stretch
     const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
     // Prefer width on short mobile stages so the bike doesn't look tall/skinny
-    const maxW = Math.max(110, 190 * sceneScale);
-    const maxH = Math.max(64, 112 * sceneScale);
+    const maxW = Math.max(125, 220 * sceneScale);
+    const maxH = Math.max(74, 130 * sceneScale);
     let bikeWidth = maxW;
     let bikeHeight = bikeWidth / aspect;
     if (bikeHeight > maxH) {

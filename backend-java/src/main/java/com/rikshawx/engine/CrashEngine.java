@@ -448,7 +448,9 @@ public class CrashEngine {
     }
 
     Double parsedAuto = (autoCashout != null && autoCashout >= 1.01) ? DataStore.round2(autoCashout) : null;
-    Bet saved = db.insertBet(currentRound.id, userId, panelId, amount, parsedAuto);
+    String walletSource = useProvider ? provider.providerId() : "local";
+    String providerCode = useProvider ? provider.gameCode() : null;
+    Bet saved = db.insertBet(currentRound.id, userId, panelId, amount, parsedAuto, walletSource, providerCode);
 
     ActiveBet bet = new ActiveBet();
     bet.id = saved.id;

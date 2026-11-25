@@ -285,6 +285,11 @@ public class DataStore {
   }
 
   public synchronized Bet insertBet(long roundId, long userId, int panelId, double amount, Double autoCashout) {
+    return insertBet(roundId, userId, panelId, amount, autoCashout, "local", null);
+  }
+
+  public synchronized Bet insertBet(long roundId, long userId, int panelId, double amount, Double autoCashout,
+                                    String walletSource, String providerCode) {
     Bet b = new Bet();
     b.id = next("bets");
     b.roundId = roundId;
@@ -295,8 +300,43 @@ public class DataStore {
     b.cashoutMultiplier = null;
     b.winAmount = 0;
     b.status = "active";
+    b.walletSource = walletSource == null || walletSource.isBlank() ? "local" : walletSource.trim();
+    b.providerCode = providerCode;
     b.createdAt = Instant.now().toString();
     return mongo.save(b);
+  }
+
+  /** Per wallet_source volume / payout / GGR for real players (user_id > 0). */
+  public synchronized Map<String, Map<String, Double>> sumFinanceByWalletSource() {
+    List<Bet> bets = mongo.find(
+        Query.query(Criteria.where("user_id").gt(0).and("status").ne("cancelled")),
+        Bet.class);
+    Map<String, Map<String, Double>> out = new LinkedHashMap<>();
+    for (Bet b : bets) {
+      String src = (b.walletSource == null || b.walletSource.isBlank()) ? "local" : b.walletSource;
+      Map<String, Double> row = out.computeIfAbsent(src, k -> {
+        Map<String, Double> m = new LinkedHashMap<>();
+        m.put("volume", 0.0);
+        m.put("payout", 0.0);
+        m.put("bets", 0.0);
+        m.put("wins", 0.0);
+        return m;
+      });
+      row.put("volume", row.get("volume") + b.betAmount);
+      row.put("bets", row.get("bets") + 1);
+      if ("cashed_out".equals(b.status)) {
+        row.put("payout", row.get("payout") + b.winAmount);
+        row.put("wins", row.get("wins") + 1);
+      }
+    }
+    for (Map<String, Double> row : out.values()) {
+      row.put("volume", round2(row.get("volume")));
+      row.put("payout", round2(row.get("payout")));
+      row.put("ggr", round2(row.get("volume") - row.get("payout")));
+      double vol = row.get("volume");
+      row.put("rtp", vol > 0 ? round2((row.get("payout") / vol) * 100) : 0.0);
+    }
+    return out;
   }
 
   public synchronized void cashoutBetDb(long betId, double mult, double win) {

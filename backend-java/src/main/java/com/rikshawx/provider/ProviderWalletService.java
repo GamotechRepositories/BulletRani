@@ -54,10 +54,23 @@ public class ProviderWalletService {
     return props.getProvider().getGameCode();
   }
 
+  /** Stable id for finance grouping — derived from gateway host (e.g. dpbossking). */
+  public String providerId() {
+    return idFromApiUrl(props.getProvider().getApiUrl());
+  }
+
+  public String providerDisplayName() {
+    String id = providerId();
+    if ("dpbossking".equalsIgnoreCase(id)) return "dpbossking";
+    return id;
+  }
+
   /** Public status + masked credentials for admin / UI. */
   public Map<String, Object> getPublicConfig() {
     AppProperties.Provider p = props.getProvider();
     Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", providerId());
+    m.put("name", providerDisplayName());
     m.put("enabled", p.isEnabled());
     m.put("active", isEnabled());
     m.put("apiUrl", p.getApiUrl());
@@ -67,6 +80,20 @@ public class ProviderWalletService {
     m.put("gameCode", p.getGameCode());
     m.put("walletMode", isEnabled() ? "provider" : "local");
     return m;
+  }
+
+  static String idFromApiUrl(String apiUrl) {
+    if (apiUrl == null || apiUrl.isBlank()) return "provider";
+    try {
+      String host = java.net.URI.create(apiUrl.trim()).getHost();
+      if (host == null || host.isBlank()) return "provider";
+      host = host.toLowerCase();
+      if (host.startsWith("api.")) host = host.substring(4);
+      int dot = host.indexOf('.');
+      return dot > 0 ? host.substring(0, dot) : host;
+    } catch (Exception e) {
+      return "provider";
+    }
   }
 
   /**

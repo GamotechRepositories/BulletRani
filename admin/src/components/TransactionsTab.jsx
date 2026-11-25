@@ -14,7 +14,7 @@ export default function TransactionsTab({ transactions, onRefresh }) {
   });
 
   return (
-    <div className="bg-[#121622] border border-white/10 rounded-2xl p-5 shadow-lg select-none animate-fade-in">
+    <div className="bg-[#121622] border border-white/10 rounded-2xl p-5 shadow-lg  animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <h3 className="text-sm font-bold uppercase tracking-wider text-white">Platform Transaction Ledger</h3>

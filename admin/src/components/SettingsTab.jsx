@@ -5,7 +5,7 @@ export default function SettingsTab({ settings, setSettings, onSave }) {
   const calculatedRTP = (100 - currentHouseEdge).toFixed(1);
 
   return (
-    <div className="bg-[#121622] border border-white/10 rounded-2xl p-6 shadow-lg max-w-2xl select-none animate-fade-in">
+    <div className="bg-[#121622] border border-white/10 rounded-2xl p-6 shadow-lg max-w-2xl  animate-fade-in">
       <h3 className="text-base font-bold text-white mb-1">Crash Math & Risk Configuration</h3>
       <p className="text-xs text-gray-400 mb-6">Real-time parameters governing the Aviator multiplier distribution curve and platform limits.</p>
 

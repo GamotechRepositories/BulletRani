@@ -37,7 +37,7 @@ export default function AdminSidebar({ open = true, onClose }) {
           fixed lg:static inset-y-0 left-0 z-40
           w-64 max-w-[85vw] h-full
           bg-[#0a0d14] border-r border-white/10
-          flex flex-col shrink-0 select-none
+          flex flex-col shrink-0 
           transition-transform duration-200 ease-out
           ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}

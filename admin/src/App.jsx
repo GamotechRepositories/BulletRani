@@ -387,7 +387,7 @@ export default function AdminApp() {
 
   if (!adminUser) {
     return (
-      <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-4 select-none">
+      <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-4 select-text">
         <div className="bg-[#121622] border border-white/10 rounded-3xl max-w-sm w-full p-6 text-white shadow-2xl">
           <div className="text-center mb-6">
             <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400">
@@ -440,7 +440,7 @@ export default function AdminApp() {
   }
 
   return (
-    <div className="h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans select-none antialiased overflow-hidden">
+    <div className="h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans select-text antialiased overflow-hidden">
       {/* Header */}
       <AdminHeader
         adminUser={adminUser}

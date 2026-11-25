@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from 'react';
 
+const inr = (n) =>
+  Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const statusStyle = {
+  active: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+  configured: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
+  disabled: 'bg-white/5 border-white/10 text-gray-400',
+  historical: 'bg-white/5 border-white/10 text-gray-500'
+};
+
 /**
- * Admin controls for Provider wallet / launch integration.
- * Toggle seamless wallet, set gateway URL + game-server API key, look up sessions.
+ * Admin controls for Provider wallet / launch integration + per-provider finance.
  */
 export default function ProviderTab({ token, apiBase, onAlert }) {
   const [form, setForm] = useState({
@@ -13,11 +22,29 @@ export default function ProviderTab({ token, apiBase, onAlert }) {
     gameCode: 'RIKSHAWX'
   });
   const [meta, setMeta] = useState({ active: false, apiKeyConfigured: false, apiKeyMasked: '', walletMode: 'local' });
+  const [providers, setProviders] = useState([]);
+  const [totals, setTotals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lookupToken, setLookupToken] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
+
+  const loadProviders = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${apiBase}/admin/providers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProviders(data.providers || []);
+        setTotals(data.totals || null);
+      }
+    } catch {
+      onAlert?.('Failed to load provider finance');
+    }
+  };
 
   const load = async () => {
     if (!token) return;
@@ -43,6 +70,7 @@ export default function ProviderTab({ token, apiBase, onAlert }) {
           walletMode: p.walletMode || 'local'
         });
       }
+      await loadProviders();
     } catch (e) {
       onAlert?.('Failed to load Provider settings');
     } finally {
@@ -118,7 +146,93 @@ export default function ProviderTab({ token, apiBase, onAlert }) {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl animate-fade-in select-none">
+    <div className="space-y-6 max-w-5xl animate-fade-in ">
+      {/* Integrated providers + finance */}
+      <div className="bg-[#121622] border border-white/10 rounded-2xl p-6 shadow-lg">
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <div>
+            <h3 className="text-base font-bold text-white mb-1">Integrated Providers</h3>
+            <p className="text-xs text-gray-400">
+              Volume, payout and gross profit (GGR) per wallet source. New provider bets are tagged after this update.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadProviders}
+            className="shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider border border-white/10 text-gray-300 hover:bg-white/5"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {totals && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+            <div className="bg-black/40 border border-white/5 rounded-xl p-4">
+              <div className="text-[10px] uppercase text-gray-500 font-semibold">Gross All (GGR)</div>
+              <div className="text-xl font-black text-emerald-400 font-mono mt-1">₹{inr(totals.grossGamingRevenue)}</div>
+            </div>
+            <div className="bg-black/40 border border-white/5 rounded-xl p-4">
+              <div className="text-[10px] uppercase text-gray-500 font-semibold">Total Volume</div>
+              <div className="text-xl font-black text-white font-mono mt-1">₹{inr(totals.totalVolume)}</div>
+            </div>
+            <div className="bg-black/40 border border-white/5 rounded-xl p-4">
+              <div className="text-[10px] uppercase text-gray-500 font-semibold">Total Payout</div>
+              <div className="text-xl font-black text-amber-400 font-mono mt-1">₹{inr(totals.totalPayout)}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-white/5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-black/50 text-gray-400 uppercase tracking-wider text-[10px]">
+                <th className="text-left p-3 font-semibold">Provider</th>
+                <th className="text-left p-3 font-semibold">Status</th>
+                <th className="text-right p-3 font-semibold">Volume</th>
+                <th className="text-right p-3 font-semibold">Payout</th>
+                <th className="text-right p-3 font-semibold">GGR (Profit)</th>
+                <th className="text-right p-3 font-semibold">RTP</th>
+                <th className="text-right p-3 font-semibold">Bets</th>
+              </tr>
+            </thead>
+            <tbody>
+              {providers.map((p) => (
+                <tr key={p.id} className="border-t border-white/5 hover:bg-white/[0.02]">
+                  <td className="p-3">
+                    <div className="font-bold text-white">{p.name}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">
+                      {p.type === 'local' ? 'Direct / demo wallet' : (
+                        <>
+                          {p.gameCode && <span className="font-mono text-gray-400">{p.gameCode}</span>}
+                          {p.apiUrl && <span className="ml-2 truncate max-w-[180px] inline-block align-bottom">{p.apiUrl}</span>}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <span className={`px-2 py-1 rounded-lg border text-[10px] font-bold uppercase ${statusStyle[p.status] || statusStyle.disabled}`}>
+                      {p.status}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right font-mono text-white">₹{inr(p.totalVolume)}</td>
+                  <td className="p-3 text-right font-mono text-gray-300">₹{inr(p.totalPayout)}</td>
+                  <td className={`p-3 text-right font-mono font-bold ${(p.grossGamingRevenue || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    ₹{inr(p.grossGamingRevenue)}
+                  </td>
+                  <td className="p-3 text-right font-mono text-amber-400">{Number(p.actualRTP || 0).toFixed(2)}%</td>
+                  <td className="p-3 text-right font-mono text-gray-400">{p.betCount || 0}</td>
+                </tr>
+              ))}
+              {providers.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-gray-500">No providers found</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="bg-[#121622] border border-white/10 rounded-2xl p-6 shadow-lg">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>

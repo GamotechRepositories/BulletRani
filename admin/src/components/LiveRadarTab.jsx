@@ -22,7 +22,7 @@ export default function LiveRadarTab({
     'px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed';
 
   return (
-    <div className="space-y-6 select-none animate-fade-in">
+    <div className="space-y-6  animate-fade-in">
       {/* Live Flight HUD Banner */}
       <div className="bg-[#121622] border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">

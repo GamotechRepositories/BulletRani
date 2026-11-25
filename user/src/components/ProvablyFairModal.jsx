@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE } from '../config';
 
 export default function ProvablyFairModal({ round, onClose }) {
   const [serverSeed, setServerSeed] = useState(round ? round.server_seed || round.serverSeed || '' : '');
@@ -17,7 +18,7 @@ export default function ProvablyFairModal({ round, onClose }) {
     if (!serverSeed || !clientSeed) return;
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/game/verify', {
+      const res = await fetch(`${API_BASE}/api/game/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

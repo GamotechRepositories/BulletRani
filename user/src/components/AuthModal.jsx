@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE } from '../config';
 
 export default function AuthModal({ onLoginSuccess, onClose }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -13,7 +14,7 @@ export default function AuthModal({ onLoginSuccess, onClose }) {
     setError(null);
     setLoading(true);
 
-    const endpoint = isRegister ? 'http://localhost:5000/api/auth/register' : 'http://localhost:5000/api/auth/login';
+    const endpoint = isRegister ? `${API_BASE}/api/auth/register` : `${API_BASE}/api/auth/login`;
     const body = isRegister
       ? { username: login, email, password }
       : { login, password };
