@@ -12,9 +12,7 @@ import ProviderTab from './components/ProviderTab';
 import RoundsLedgerTab from './components/RoundsLedgerTab';
 import TransactionsTab from './components/TransactionsTab';
 import './App.css';
-
-const API_BASE = 'http://localhost:5000/api';
-const SOCKET_URL = 'http://localhost:5001';
+import { API_BASE, SOCKET_URL } from './config';
 
 export default function AdminApp() {
   const navigate = useNavigate();
@@ -22,7 +20,7 @@ export default function AdminApp() {
   const [token, setToken] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Login form state — seeded admin: admin / 123456
+  // Login form state — admin / ADMIN_PASSWORD from backend-java/.env
   const [loginId, setLoginId] = useState('admin');
   const [loginPass, setLoginPass] = useState('123456');
   const [loginError, setLoginError] = useState(null);
