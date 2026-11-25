@@ -8,8 +8,8 @@ Java/Spring Boot port of the Node crash-game engine.
 
 Frontends keep API calls on `:5000` and connect sockets to `:5001`.
 
-## Run
-Stop the Node backend first (it also uses port 5000), then:
+## Run (local Maven)
+Stop anything already bound to ports 5000/5001, then:
 
 ```bat
 mvnw.cmd spring-boot:run
@@ -20,6 +20,22 @@ Or from repo root:
 ```bat
 npm run start:backend-java
 ```
+
+## Run (Docker)
+Requires Docker Desktop and a filled-in `.env` (see `.env.example`).
+
+```bat
+docker compose up --build -d
+```
+
+API: `http://localhost:5000` · Socket.IO: `http://localhost:5001`
+
+```bat
+docker compose logs -f backend
+docker compose down
+```
+
+The image vendors `libs/game-sdk-1.0.0.jar` (Provider SDK) at build time.
 
 ## Provider Game SDK (`in.oreng:game-sdk`)
 Wallet debit/credit goes through Provider when enabled:
@@ -41,7 +57,7 @@ Client launches with `?sessionToken=...` and uses `@gamotech/game-sdk-client` fo
 Persists to **MongoDB** (`MONGODB_URI` + `MONGODB_DATABASE` in `.env`).
 The legacy `backend/data/store.json` file is no longer written.
 
-Default admin: `admin` / `123456`
+Admin login: `admin` / value of `ADMIN_PASSWORD` in `.env` (required; no weak default).
 
 ## Stack
 - Spring Boot 4 (Web MVC)

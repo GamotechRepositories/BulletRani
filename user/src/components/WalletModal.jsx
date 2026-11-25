@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 
 export default function WalletModal({ balance, token, onBalanceUpdated, onClose }) {
-  const [tab, setTab] = useState('deposit'); // 'deposit' | 'withdraw' | 'transactions'
+  const [tab, setTab] = useState('transactions'); // 'deposit' | 'withdraw' | 'transactions'
   const [amount, setAmount] = useState(500);
   const [paymentMethod, setPaymentMethod] = useState('UPI Instant (GPay / PhonePe / Paytm)');
   const [bankDetails, setBankDetails] = useState('');
@@ -31,60 +31,17 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
   };
 
   const handleDeposit = async () => {
-    if (amount < 100) return;
-    setLoading(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/wallet/deposit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ amount, paymentMethod })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg({ type: 'success', text: data.message });
-        onBalanceUpdated(data.balance);
-      } else {
-        setStatusMsg({ type: 'error', text: data.error || 'Deposit failed' });
-      }
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Server error' });
-    } finally {
-      setLoading(false);
-    }
+    setStatusMsg({
+      type: 'error',
+      text: 'Self-serve deposits are disabled. Use Provider wallet or contact support.',
+    });
   };
 
   const handleWithdraw = async () => {
-    if (amount < 200) {
-      setStatusMsg({ type: 'error', text: 'Minimum withdrawal is ₹200' });
-      return;
-    }
-    setLoading(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/wallet/withdraw`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ amount, bankDetails: bankDetails || 'UPI VPA / Bank' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg({ type: 'success', text: data.message });
-        onBalanceUpdated(data.balance);
-      } else {
-        setStatusMsg({ type: 'error', text: data.error || 'Withdrawal failed' });
-      }
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Server error' });
-    } finally {
-      setLoading(false);
-    }
+    setStatusMsg({
+      type: 'error',
+      text: 'Self-serve withdrawals are disabled. Use Provider wallet or contact support.',
+    });
   };
 
   return (
@@ -147,92 +104,38 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
 
         {tab === 'deposit' && (
           <div className="space-y-4 text-xs">
-            <div>
-              <label className="text-gray-400 block mb-1 font-semibold">Deposit Amount (₹)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400 font-bold">₹</span>
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 pl-8 pr-3 text-base font-bold text-white outline-none focus:border-emerald-500"
-                />
-              </div>
+            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100">
+              <p className="font-bold mb-1">Deposits disabled</p>
+              <p className="text-amber-100/80 leading-relaxed">
+                Self-serve balance credits are turned off. Fund play via Provider wallet launch,
+                or ask an admin to adjust balance.
+              </p>
             </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {presets.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setAmount(p)}
-                  className={`py-2 rounded-lg border text-xs font-bold transition-all ${
-                    amount === p
-                      ? 'border-emerald-500 bg-emerald-500/20 text-white font-extrabold'
-                      : 'border-white/5 bg-white/5 text-gray-400 hover:bg-white/10'
-                  }`}
-                >
-                  +₹{p}
-                </button>
-              ))}
-            </div>
-
-            <div>
-              <label className="text-gray-400 block mb-1 font-semibold">Instant Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full bg-black/50 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none"
-              >
-                <option value="UPI Instant (GPay / PhonePe / Paytm)">UPI Instant (GPay / PhonePe / Paytm)</option>
-                <option value="Credit / Debit Card (Visa / Mastercard)">Credit / Debit Card (Visa / Mastercard)</option>
-                <option value="Crypto (USDT TRC20 / Bitcoin)">Crypto (USDT TRC20 / Bitcoin)</option>
-                <option value="NetBanking (Instant IMPS)">NetBanking (Instant IMPS)</option>
-              </select>
-            </div>
-
             <button
               onClick={handleDeposit}
-              disabled={loading || amount < 100}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 font-bold text-sm text-white hover:from-emerald-400 hover:to-green-500 active:scale-98 transition-all disabled:opacity-40 shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+              disabled
+              className="w-full py-3 rounded-xl bg-white/10 font-bold text-sm text-gray-400 cursor-not-allowed"
             >
-              {loading ? 'Processing Gateway...' : `Instant Deposit ₹${amount.toLocaleString()}`}
+              Instant Deposit unavailable
             </button>
           </div>
         )}
 
         {tab === 'withdraw' && (
           <div className="space-y-4 text-xs">
-            <div>
-              <label className="text-gray-400 block mb-1 font-semibold">Withdraw Amount (₹)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400 font-bold">₹</span>
-                <input
-                  type="number"
-                  value={amount}
-                  max={balance}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full bg-black/50 border border-white/10 rounded-xl py-2.5 pl-8 pr-3 text-base font-bold text-white outline-none focus:border-red-500"
-                />
-              </div>
+            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-100">
+              <p className="font-bold mb-1">Withdrawals disabled</p>
+              <p className="text-amber-100/80 leading-relaxed">
+                Self-serve balance drains are turned off. Cash out via Provider wallet,
+                or contact support / an admin.
+              </p>
             </div>
-
-            <div>
-              <label className="text-gray-400 block mb-1 font-semibold">UPI ID or Bank Account Details</label>
-              <input
-                type="text"
-                value={bankDetails}
-                onChange={(e) => setBankDetails(e.target.value)}
-                placeholder="e.g. pilot@okhdfcbank or Account: 50100..."
-                className="w-full bg-black/50 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-red-500"
-              />
-            </div>
-
             <button
               onClick={handleWithdraw}
-              disabled={loading || amount < 200 || amount > balance}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 font-bold text-sm text-white hover:from-red-500 hover:to-rose-500 active:scale-98 transition-all disabled:opacity-40 shadow-[0_0_20px_rgba(229,34,60,0.4)]"
+              disabled
+              className="w-full py-3 rounded-xl bg-white/10 font-bold text-sm text-gray-400 cursor-not-allowed"
             >
-              {loading ? 'Processing Withdrawal...' : `Withdraw ₹${amount.toLocaleString()}`}
+              Withdraw unavailable
             </button>
           </div>
         )}

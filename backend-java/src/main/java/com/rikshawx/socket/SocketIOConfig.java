@@ -18,6 +18,8 @@ public class SocketIOConfig implements GameBroadcaster {
     Configuration cfg = new Configuration();
     cfg.setHostname(props.getSocketHost());
     cfg.setPort(props.getSocketPort());
+    // Socket.IO origin check is coarse (single value). Keep * for LAN/dev;
+    // bets/admin room require JWT on connect. HTTP CORS is allowlisted separately.
     cfg.setOrigin("*");
     this.server = new SocketIOServer(cfg);
   }
@@ -49,5 +51,10 @@ public class SocketIOConfig implements GameBroadcaster {
   @Override
   public void emitToUser(long userId, String event, Object data) {
     server.getRoomOperations("user_" + userId).sendEvent(event, data);
+  }
+
+  @Override
+  public void emitToAdmins(String event, Object data) {
+    server.getRoomOperations("admins").sendEvent(event, data);
   }
 }

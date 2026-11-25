@@ -4,10 +4,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "rikshawx")
 public class AppProperties {
-  private String jwtSecret = "aviator_super_secret_jwt_key_2026";
+  /** Required via JWT_SECRET — no weak default. */
+  private String jwtSecret = "";
   private int jwtDays = 7;
   private String socketHost = "0.0.0.0";
   private int socketPort = 5001;
+  /** Comma-separated origin patterns for CORS (Spring OriginPattern syntax). */
+  private String corsOrigins = "http://localhost:*,http://127.0.0.1:*,http://192.168.*.*:*,http://10.*.*.*:*";
   private final Provider provider = new Provider();
   private final Mongodb mongodb = new Mongodb();
 
@@ -19,6 +22,8 @@ public class AppProperties {
   public void setSocketHost(String socketHost) { this.socketHost = socketHost; }
   public int getSocketPort() { return socketPort; }
   public void setSocketPort(int socketPort) { this.socketPort = socketPort; }
+  public String getCorsOrigins() { return corsOrigins; }
+  public void setCorsOrigins(String corsOrigins) { this.corsOrigins = corsOrigins; }
   public Provider getProvider() { return provider; }
   public Mongodb getMongodb() { return mongodb; }
 

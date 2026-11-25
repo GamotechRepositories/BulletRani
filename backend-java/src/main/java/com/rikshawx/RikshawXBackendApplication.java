@@ -1,6 +1,7 @@
 package com.rikshawx;
 
 import com.rikshawx.config.AppProperties;
+import com.rikshawx.security.SecurityBootstrap;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,6 +12,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 public class RikshawXBackendApplication {
   public static void main(String[] args) {
     loadDotEnv();
+    SecurityBootstrap.assertSecureOrDie();
     SpringApplication.run(RikshawXBackendApplication.class, args);
   }
 

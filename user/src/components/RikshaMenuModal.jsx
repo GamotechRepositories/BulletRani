@@ -43,7 +43,6 @@ export default function RikshaMenuModal({
   onToggleSound,
   onToggleMusic,
   onOpenWallet,
-  onOpenProvablyFair,
   onOpenHowToPlay,
   onOpenAuth,
   onLogout,
@@ -67,7 +66,7 @@ export default function RikshaMenuModal({
             <h3 className="text-base font-black tracking-wide" style={{ fontFamily: "'Chakra Petch', sans-serif" }}>
               TOPGUN MENU
             </h3>
-            <p className="text-xs text-gray-400">Settings, Fair Math & Wallet</p>
+            <p className="text-xs text-gray-400">Settings & Wallet</p>
           </div>
         </div>
 
@@ -95,17 +94,6 @@ export default function RikshaMenuModal({
               <span className="font-semibold text-gray-200">My Wallet (Deposit / Withdraw)</span>
             </div>
             <span className="font-mono text-emerald-400 font-bold">₹{user?.balance?.toFixed(2)}</span>
-          </button>
-
-          {/* Provably Fair */}
-          <button
-            onClick={() => { onClose(); onOpenProvablyFair(); }}
-            className="w-full flex items-center gap-2.5 p-3 rounded-xl bg-black/40 hover:bg-white/5 border border-white/5 text-left transition-colors cursor-pointer"
-          >
-            <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            <span className="font-semibold text-gray-200">Provably Fair Verification</span>
           </button>
 
           {/* How to Play */}

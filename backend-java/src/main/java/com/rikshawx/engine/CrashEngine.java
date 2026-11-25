@@ -108,7 +108,7 @@ public class CrashEngine {
     if (paused) {
       state = "WAITING";
       awaitingResume = true;
-      bus.emit("admin:engine", getAdminEngineState());
+      bus.emitToAdmins("admin:engine", getAdminEngineState());
       return;
     }
     awaitingResume = false;
@@ -165,7 +165,7 @@ public class CrashEngine {
     prep.put("chainHash", cr.chainHash);
     prep.put("activeBets", getAllBetsArray());
     bus.emit("round:preparing", prep);
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     startCountdown((long) (countdownSeconds * 1000));
   }
 
@@ -222,7 +222,7 @@ public class CrashEngine {
     started.put("roundNumber", currentRound.roundNumber);
     started.put("activeBets", getAllBetsArray());
     bus.emit("round:started", started);
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
 
     cancelTick();
     tickFuture = scheduler.scheduleAtFixedRate(() -> {
@@ -253,8 +253,9 @@ public class CrashEngine {
   }
 
   /**
-   * Real player bets → use ProvablyFair house-edge calculation.
-   * Bots-only → entertainment crash (usually 10x–25x+, rarely 1x–2x).
+   * Real player bets → ProvablyFair house-edge calculation (unchanged — uses round seeds).
+   * No real bets (bots-only / empty) → same mathematical distribution as fair crash
+   * (mostly early rugs, ~10% ≥10x) so Past Multipliers looks believable, not “always purple”.
    * Admin next-crash override always wins.
    */
   private void resolveCrashTargetAtLaunch() {
@@ -267,15 +268,16 @@ public class CrashEngine {
       return;
     }
 
-    ThreadLocalRandom r = ThreadLocalRandom.current();
-    double roll = r.nextDouble();
+    // Bots-only entertainment: Bustabit-shaped sample (same formula as ProvablyFair,
+    // but random float — does NOT rewrite seed-based fairCrashMultiplier for real bets).
+    double houseEdge = (currentRound.houseEdge > 0 ? currentRound.houseEdge : 3.0) / 100.0;
+    double floatVal = ThreadLocalRandom.current().nextDouble();
     double target;
-    if (roll < 0.14) {
-      target = 1.00 + r.nextDouble() * 1.00; // few early rugs
-    } else if (roll < 0.32) {
-      target = 25.0 + r.nextDouble() * 40.0; // past 25x
+    if (floatVal < houseEdge) {
+      target = 1.00;
     } else {
-      target = 10.05 + r.nextDouble() * 14.95; // 10x–25x
+      double raw = (1.0 - houseEdge) / (1.0 - floatVal);
+      target = Math.max(1.01, Math.floor(raw * 100.0) / 100.0);
     }
     target = DataStore.round2(Math.max(1.00, target));
     currentRound.crashMultiplier = target;
@@ -577,9 +579,30 @@ public class CrashEngine {
     m.put("recentHistory", recentHistory.size() > 25 ? recentHistory.subList(recentHistory.size() - 25, recentHistory.size()) : recentHistory);
     m.put("allBets", getAllBetsArray());
     if (userId != null) {
-      List<ActiveBet> mine = activeBets.values().stream().filter(b -> b.userId == userId).toList();
+      List<Map<String, Object>> mine = new ArrayList<>();
+      for (ActiveBet b : activeBets.values()) {
+        if (b.userId != userId) continue;
+        mine.add(publicBetDto(b));
+      }
       m.put("myActiveBets", mine);
     } else m.put("myActiveBets", List.of());
+    return m;
+  }
+
+  /** Public bet shape — never includes sessionToken / debitTxId. */
+  private static Map<String, Object> publicBetDto(ActiveBet b) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("id", b.id);
+    m.put("userId", b.userId);
+    m.put("username", b.username);
+    m.put("avatar", b.avatar != null ? b.avatar : "🧑‍✈️");
+    m.put("panelId", b.panelId);
+    m.put("betAmount", b.betAmount);
+    m.put("cashoutMultiplier", b.cashoutMultiplier);
+    m.put("winAmount", b.winAmount);
+    m.put("status", b.status);
+    m.put("isBot", b.isBot);
+    m.put("autoCashout", b.autoCashout);
     return m;
   }
 
@@ -611,7 +634,7 @@ public class CrashEngine {
   public synchronized Map<String, Object> setNextCrashOverride(double mult) {
     if (mult < 1.0) return Map.of("success", false, "message", "Multiplier must be >= 1.00");
     nextCrashOverride = DataStore.round2(mult);
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     return Map.of("success", true, "nextCrashOverride", nextCrashOverride);
   }
 
@@ -623,7 +646,7 @@ public class CrashEngine {
     if ("FLYING".equals(state) && currentMultiplier >= currentCrashOverride) {
       return forceCrash(currentCrashOverride);
     }
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     return Map.of("success", true, "crashTarget", currentCrashOverride);
   }
 
@@ -632,14 +655,14 @@ public class CrashEngine {
     currentCrashOverride = null;
     adminForcedCrash = false;
     if (currentRound != null) currentRound.crashMultiplier = fairCrashMultiplier;
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     return Map.of("success", true);
   }
 
   public synchronized Map<String, Object> pauseGame() {
     paused = true; pauseStartedAt = System.currentTimeMillis();
     cancelCountdown();
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     bus.emit("round:paused", Map.of("paused", true));
     return Map.of("success", true, "paused", true);
   }
@@ -649,7 +672,7 @@ public class CrashEngine {
       roundStartTime += System.currentTimeMillis() - pauseStartedAt;
     }
     paused = false; pauseStartedAt = null;
-    bus.emit("admin:engine", getAdminEngineState());
+    bus.emitToAdmins("admin:engine", getAdminEngineState());
     bus.emit("round:paused", Map.of("paused", false));
     if (awaitingResume) prepareNewRound();
     else if ("WAITING".equals(state) && currentRound != null && countdownFuture == null) {

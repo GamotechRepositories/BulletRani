@@ -38,33 +38,10 @@ export default function WalletModal({ balance, token, onBalanceUpdated, onClose 
   };
 
   const handleWithdraw = async () => {
-    if (amount < 200) {
-      setStatusMsg({ type: 'error', text: 'Minimum withdrawal is ₹200' });
-      return;
-    }
-    setLoading(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch('http://localhost:5000/api/wallet/withdraw', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ amount, bankDetails: bankDetails || 'UPI VPA / Bank' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg({ type: 'success', text: data.message });
-        onBalanceUpdated(data.balance);
-      } else {
-        setStatusMsg({ type: 'error', text: data.error || 'Withdrawal failed' });
-      }
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Server error' });
-    } finally {
-      setLoading(false);
-    }
+    setStatusMsg({
+      type: 'error',
+      text: 'Self-serve withdrawals are disabled. Use Provider wallet or contact support.',
+    });
   };
 
   return (

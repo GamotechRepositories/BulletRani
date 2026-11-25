@@ -39,43 +39,30 @@ public class WalletController {
     }
   }
 
+  /**
+   * Self-serve deposit is disabled — it previously credited balance with no payment.
+   * Credits must come from admin adjust-balance or Provider wallet.
+   */
   @PostMapping("/deposit")
-  public ResponseEntity<?> deposit(@RequestHeader("Authorization") String auth, @RequestBody Map<String, Object> body) {
-    try {
-      long id = uid(auth);
-      double amount = Double.parseDouble(String.valueOf(body.get("amount")));
-      String method = String.valueOf(body.getOrDefault("paymentMethod", "UPI / Card"));
-      if (amount < 100 || amount > 100000) {
-        return ResponseEntity.badRequest().body(Map.of("error", "Deposit amount must be between ₹100 and ₹1,00,000"));
-      }
-      User u = db.findById(id);
-      double newBal = DataStore.round2(u.balance + amount);
-      db.updateBalance(id, newBal);
-      db.insertTx(id, "deposit", amount, newBal, "Deposit via " + method);
-      return ResponseEntity.ok(Map.of("success", true, "balance", newBal,
-          "message", "₹" + amount + " credited successfully!"));
-    } catch (Exception e) {
-      return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
-    }
+  public ResponseEntity<?> deposit(@RequestHeader(value = "Authorization", required = false) String auth,
+                                   @RequestBody(required = false) Map<String, Object> body) {
+    return ResponseEntity.status(403).body(Map.of(
+        "success", false,
+        "error", "Self-serve deposits are disabled. Use Provider wallet or contact support."
+    ));
   }
 
+  /**
+   * Self-serve withdraw is disabled — it previously drained local balance with no payout rail.
+   * Cash-outs must go through Provider wallet or admin-controlled flows.
+   */
   @PostMapping("/withdraw")
-  public ResponseEntity<?> withdraw(@RequestHeader("Authorization") String auth, @RequestBody Map<String, Object> body) {
-    try {
-      long id = uid(auth);
-      double amount = Double.parseDouble(String.valueOf(body.get("amount")));
-      String bank = String.valueOf(body.getOrDefault("bankDetails", "Bank Account"));
-      if (amount < 200) return ResponseEntity.badRequest().body(Map.of("error", "Minimum withdrawal is ₹200"));
-      User u = db.findById(id);
-      if (u.balance < amount) return ResponseEntity.badRequest().body(Map.of("error", "Insufficient funds"));
-      double newBal = DataStore.round2(u.balance - amount);
-      db.updateBalance(id, newBal);
-      db.insertTx(id, "withdrawal", -amount, newBal, "Withdrawal to " + bank);
-      return ResponseEntity.ok(Map.of("success", true, "balance", newBal,
-          "message", "Withdrawal request for ₹" + amount + " processed!"));
-    } catch (Exception e) {
-      return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
-    }
+  public ResponseEntity<?> withdraw(@RequestHeader(value = "Authorization", required = false) String auth,
+                                    @RequestBody(required = false) Map<String, Object> body) {
+    return ResponseEntity.status(403).body(Map.of(
+        "success", false,
+        "error", "Self-serve withdrawals are disabled. Use Provider wallet or contact support."
+    ));
   }
 
   @GetMapping("/transactions")

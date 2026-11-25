@@ -20,9 +20,13 @@ public class JwtService {
   private final int jwtDays;
 
   public JwtService(AppProperties props) {
-    byte[] bytes = props.getJwtSecret().getBytes(StandardCharsets.UTF_8);
+    String secret = props.getJwtSecret();
+    if (secret == null || secret.isBlank()) {
+      throw new IllegalStateException("rikshawx.jwt-secret / JWT_SECRET is required");
+    }
+    byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
     if (bytes.length < 32) {
-      bytes = java.util.Arrays.copyOf(bytes, 32);
+      throw new IllegalStateException("JWT_SECRET must be at least 32 bytes (no zero-padding)");
     }
     this.key = Keys.hmacShaKeyFor(bytes);
     this.jwtDays = props.getJwtDays();

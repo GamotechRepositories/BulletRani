@@ -27,9 +27,12 @@ public class AdminController {
     this.provider = provider;
   }
 
+  /** Live role check from DB — demoted admins lose access even with an old JWT. */
   private Claims requireAdmin(String auth) {
     Claims c = jwt.fromAuthHeader(auth);
-    if (!"admin".equals(String.valueOf(c.get("role")))) {
+    long id = ((Number) c.get("id")).longValue();
+    User u = db.findById(id);
+    if (u == null || u.isBanned != 0 || !"admin".equals(u.role)) {
       throw new SecurityException("Admin privilege required");
     }
     return c;
@@ -127,7 +130,7 @@ public class AdminController {
       requireAdmin(auth);
       long userId = Long.parseLong(String.valueOf(body.get("userId")));
       String pw = String.valueOf(body.get("newPassword"));
-      if (pw.length() < 4) return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 4 characters"));
+      if (pw.length() < 8) return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters"));
       if (db.findById(userId) == null) return ResponseEntity.status(404).body(Map.of("error", "User not found"));
       db.setPassword(userId, pw);
       return ResponseEntity.ok(Map.of("success", true, "message", "Password reset"));

@@ -119,7 +119,11 @@ export default function AdminApp() {
   useEffect(() => {
     if (!token || !adminUser) return undefined;
 
-    const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    const s = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      auth: { token },
+      query: { token },
+    });
     s.emit('game:init', {});
 
     s.on('game:snapshot', (snap) => {

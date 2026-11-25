@@ -1,8 +1,10 @@
 package com.rikshawx.web;
 
 import com.rikshawx.fair.ProvablyFair;
+import com.rikshawx.security.JwtService;
 import com.rikshawx.store.DataStore;
 import com.rikshawx.store.Models.GameRound;
+import io.jsonwebtoken.Claims;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,9 +16,11 @@ import java.util.Map;
 @RequestMapping("/api/game")
 public class GameController {
   private final DataStore db;
+  private final JwtService jwt;
 
-  public GameController(DataStore db) {
+  public GameController(DataStore db, JwtService jwt) {
     this.db = db;
+    this.jwt = jwt;
   }
 
   @PostMapping("/verify")
@@ -60,8 +64,31 @@ public class GameController {
     return Map.of("topWins", db.topWins());
   }
 
+  /** Authenticated — returns bets for the JWT subject only (no path userId). */
+  @GetMapping("/my-bets")
+  public ResponseEntity<?> myBets(@RequestHeader("Authorization") String auth) {
+    try {
+      Claims c = jwt.fromAuthHeader(auth);
+      long userId = ((Number) c.get("id")).longValue();
+      return ResponseEntity.ok(Map.of("bets", db.userBets(userId)));
+    } catch (Exception e) {
+      return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+    }
+  }
+
+  /** Legacy path — still requires JWT and only allows own userId. */
   @GetMapping("/my-bets/{userId}")
-  public Map<String, Object> myBets(@PathVariable long userId) {
-    return Map.of("bets", db.userBets(userId));
+  public ResponseEntity<?> myBetsById(@RequestHeader("Authorization") String auth,
+                                      @PathVariable long userId) {
+    try {
+      Claims c = jwt.fromAuthHeader(auth);
+      long authed = ((Number) c.get("id")).longValue();
+      if (authed != userId) {
+        return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+      }
+      return ResponseEntity.ok(Map.of("bets", db.userBets(userId)));
+    } catch (Exception e) {
+      return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+    }
   }
 }

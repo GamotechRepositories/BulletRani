@@ -7,7 +7,6 @@ import TopGunPlayersList from './components/TopGunPlayersList';
 import Top20Modal from './components/Top20Modal';
 import RikshaMenuModal from './components/RikshaMenuModal';
 import WalletModal from './components/WalletModal';
-import ProvablyFairModal from './components/ProvablyFairModal';
 import HowToPlayModal from './components/HowToPlayModal';
 import AuthModal from './components/AuthModal';
 import { sound } from './soundEngine';
@@ -61,16 +60,11 @@ export default function App() {
 
   // Active bets per panel (key: panelId -> bet object)
   const [activeBets, setActiveBets] = useState({});
-  const [bet2Collapsed, setBet2Collapsed] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
-  );
 
   // Modals
   const [showTop20, setShowTop20] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
-  const [showProvablyFair, setShowProvablyFair] = useState(false);
-  const [selectedRoundForVerify, setSelectedRoundForVerify] = useState(null);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -178,14 +172,16 @@ export default function App() {
     setActiveBets({});
   };
 
-  // Socket Connection & Real-time Event Handlers
+  // Socket Connection & Real-time Event Handlers (JWT via query — server binds userId)
   useEffect(() => {
     const s = io(SOCKET_SERVER, {
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
+      query: token ? { token } : undefined,
     });
 
     s.on('connect', () => {
-      s.emit('game:init', { userId: user ? user.id : null });
+      s.emit('game:init', {});
     });
 
     s.on('game:snapshot', (data) => {
@@ -306,7 +302,7 @@ export default function App() {
     return () => {
       s.disconnect();
     };
-  }, [user?.id]);
+  }, [user?.id, token]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/game/leaderboard`)
@@ -328,7 +324,6 @@ export default function App() {
     }
 
     socket.emit('bet:place', {
-      userId: user.id,
       panelId,
       amount,
       autoCashout,
@@ -358,7 +353,6 @@ export default function App() {
   const handleCancelBet = (panelId) => {
     if (!socket || !user) return;
     socket.emit('bet:cancel', {
-      userId: user.id,
       panelId,
       sessionToken: getSessionToken()
     }, (res) => {
@@ -380,9 +374,7 @@ export default function App() {
   const handleCashout = (panelId) => {
     if (!socket || !user) return;
     socket.emit('bet:cashout', {
-      userId: user.id,
       panelId,
-      sessionToken: getSessionToken()
     });
   };
 
@@ -436,10 +428,6 @@ export default function App() {
         username={user?.username || 'TopGunPilot'}
         balance={user ? user.balance : 5895.75}
         onOpenWallet={() => setShowWallet(true)}
-        onSelectRound={(round) => {
-          setSelectedRoundForVerify(round);
-          setShowProvablyFair(true);
-        }}
         onOpenProfile={() => setShowMenu(true)}
       />
 
@@ -483,9 +471,6 @@ export default function App() {
               onCancelBet={handleCancelBet}
               onCashout={handleCashout}
               sound={sound}
-              collapsible
-              collapsed={bet2Collapsed}
-              onToggleCollapse={() => setBet2Collapsed((v) => !v)}
             />
           </div>
 
@@ -517,10 +502,6 @@ export default function App() {
           onToggleSound={toggleSound}
           onToggleMusic={toggleMusic}
           onOpenWallet={() => setShowWallet(true)}
-          onOpenProvablyFair={() => {
-            setSelectedRoundForVerify(recentHistory[recentHistory.length - 1] || null);
-            setShowProvablyFair(true);
-          }}
           onOpenHowToPlay={() => setShowHowToPlay(true)}
           onOpenAuth={() => setShowAuth(true)}
           onLogout={handleLogout}
@@ -534,13 +515,6 @@ export default function App() {
           token={token}
           onBalanceUpdated={(newBal) => setUser(prev => ({ ...prev, balance: newBal }))}
           onClose={() => setShowWallet(false)}
-        />
-      )}
-
-      {showProvablyFair && (
-        <ProvablyFairModal
-          round={selectedRoundForVerify}
-          onClose={() => setShowProvablyFair(false)}
         />
       )}
 

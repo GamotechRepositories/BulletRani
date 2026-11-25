@@ -48,33 +48,36 @@ export default function TopGunHeader({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const scrollerRef = useRef(null);
 
+  const toneFor = (m) => {
+    if (m >= 100) return 'legendary';
+    if (m >= 10) return 'high';
+    if (m >= 2) return 'mid';
+    return 'low';
+  };
+
+  const toneClass = {
+    low: 'text-[#9ca3af]',
+    mid: 'text-[#d1d5db]',
+    high: 'text-[#c084fc]',
+    legendary: 'text-[#fbbf24]'
+  };
+
+  const tonePill = {
+    low: 'bg-white/[0.04] border-white/[0.06]',
+    mid: 'bg-white/[0.06] border-white/[0.08]',
+    high: 'bg-fuchsia-500/10 border-fuchsia-400/25',
+    legendary: 'bg-amber-500/10 border-amber-400/30'
+  };
+
   const defaultMultipliers = [
-    { m: 1.25, isHigh: false },
-    { m: 3.12, isHigh: false },
-    { m: 45.99, isHigh: true },
-    { m: 3.04, isHigh: false },
-    { m: 1.18, isHigh: false },
-    { m: 1.57, isHigh: false },
-    { m: 1.45, isHigh: false },
-    { m: 1.57, isHigh: false },
-    { m: 2.83, isHigh: false },
-    { m: 1.40, isHigh: false },
-    { m: 1.79, isHigh: false },
-    { m: 6.11, isHigh: false },
-    { m: 1.54, isHigh: false },
-    { m: 3.01, isHigh: false },
-    { m: 15.74, isHigh: true },
-    { m: 23.63, isHigh: true }
-  ];
+    1.12, 1.48, 2.05, 1.33, 3.41, 1.07, 5.20, 1.89,
+    12.40, 1.56, 2.77, 1.21, 4.08, 1.94, 8.15, 1.38
+  ].map((m) => ({ m, tone: toneFor(m) }));
 
   const displayList = (history && history.length > 0)
-    ? history.slice(-25).reverse().map(r => {
-        const m = r.crash_multiplier || r.crashMultiplier || 1.0;
-        return {
-          m: parseFloat(m.toFixed(2)),
-          isHigh: m >= 10.0,
-          round: r
-        };
+    ? history.slice(-32).reverse().map((r) => {
+        const m = parseFloat((r.crash_multiplier || r.crashMultiplier || 1.0).toFixed(2));
+        return { m, tone: toneFor(m), round: r };
       })
     : defaultMultipliers;
 
@@ -114,14 +117,9 @@ export default function TopGunHeader({
             {displayList.map((item, idx) => (
               <span
                 key={idx}
-                onClick={() => item.round && onSelectRound && onSelectRound(item.round)}
-                className={`cursor-pointer shrink-0 whitespace-nowrap ${
-                  item.isHigh
-                    ? 'text-[#c084fc] font-semibold'
-                    : 'text-gray-400 font-semibold'
-                }`}
+                className={`shrink-0 whitespace-nowrap font-semibold ${toneClass[item.tone] || toneClass.mid}`}
               >
-                x{item.m.toFixed(2)}
+                {item.m.toFixed(2)}x
               </span>
             ))}
           </div>
@@ -144,22 +142,44 @@ export default function TopGunHeader({
         </div>
 
         {dropdownOpen && (
-          <div className="absolute top-9 left-0 right-0 sm:right-auto sm:w-80 bg-[#14161a] border border-white/10 rounded-xl shadow-2xl p-3 z-50 animate-fade-in text-xs">
-            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
-              <span className="font-bold text-white text-[11px] uppercase tracking-wider">Past Multipliers</span>
-              <button onClick={() => setDropdownOpen(false)} className="text-gray-400 hover:text-white px-1 cursor-pointer">✕</button>
+          <div className="absolute top-9 left-0 right-0 sm:left-0 sm:right-auto sm:w-[22rem] bg-[#0f1218] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.55)] p-3.5 z-50 animate-fade-in">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="font-black text-white text-[11px] uppercase tracking-[0.14em]">
+                  Past Multipliers
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5">Latest rounds · purple ≥ 10x</div>
+              </div>
+              <button
+                onClick={() => setDropdownOpen(false)}
+                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
-            <div className="grid grid-cols-4 gap-1.5 max-h-44 overflow-y-auto scrollbar-thin">
+            <div className="grid grid-cols-4 gap-1.5 max-h-52 overflow-y-auto scrollbar-thin pr-0.5">
               {displayList.map((item, idx) => (
                 <div
                   key={idx}
-                  className={`text-center py-1 rounded bg-black/40 font-mono text-[11px] font-bold ${
-                    item.isHigh ? 'text-[#c084fc]' : 'text-gray-400'
-                  }`}
+                  className={`text-center py-1.5 rounded-lg border font-mono text-[11px] font-bold tracking-tight ${toneClass[item.tone]} ${tonePill[item.tone]}`}
                 >
-                  x{item.m.toFixed(2)}
+                  {item.m.toFixed(2)}x
                 </div>
               ))}
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-[9px] text-gray-500 uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> Low
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-200" /> Mid
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400" /> 10x+
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> 100x+
+              </span>
             </div>
           </div>
         )}

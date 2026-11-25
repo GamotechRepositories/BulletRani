@@ -56,12 +56,23 @@ public class DataStore {
     ensureCounter("bets", 0);
     ensureCounter("transactions", 0);
 
-    ensureSeedAdmin("admin", "admin@bulletrani.local", "123456");
+    String adminPassword = firstEnv("ADMIN_PASSWORD");
+    if (adminPassword == null || adminPassword.isBlank()) {
+      throw new IllegalStateException("ADMIN_PASSWORD is required in backend-java/.env");
+    }
+    // Always sync admin password from env so rotations take effect on restart
+    ensureSeedAdmin("admin", "admin@bulletrani.local", adminPassword);
 
     if (mongo.count(Query.query(Criteria.where("role").is("player")), User.class) == 0) {
-      createUserInternal("TopGunPilot", "pilot@aviator.local", "pilot123", 5000, "player");
-      createUserInternal("LuckySky77", "sky77@aviator.local", "pilot123", 8200, "player");
+      createUserInternal("TopGunPilot", "pilot@aviator.local", "pilot123", 0, "player");
+      createUserInternal("LuckySky77", "sky77@aviator.local", "pilot123", 0, "player");
     }
+  }
+
+  private static String firstEnv(String key) {
+    String v = System.getProperty(key);
+    if (v == null || v.isBlank()) v = System.getenv(key);
+    return v;
   }
 
   private void putSettingIfAbsent(String key, String value) {
@@ -103,19 +114,15 @@ public class DataStore {
     }
 
     if (existing == null) {
-      createUserInternal(username, email, password, 100000, "admin");
+      createUserInternal(username, email, password, 0, "admin");
       return;
     }
 
-    boolean migrating = !"admin".equalsIgnoreCase(existing.username)
-        || !"admin@bulletrani.local".equalsIgnoreCase(existing.email);
     existing.username = username;
     existing.email = email.toLowerCase(Locale.ROOT);
     existing.role = "admin";
     existing.isBanned = 0;
-    if (migrating) {
-      existing.passwordHash = bcrypt.encode(password);
-    }
+    existing.passwordHash = bcrypt.encode(password);
     mongo.save(existing);
   }
 
