@@ -1,8 +1,10 @@
 package com.rikshawx.socket;
 
+import com.corundumstudio.socketio.AuthorizationResult;
 import com.corundumstudio.socketio.Configuration;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.rikshawx.config.AppProperties;
+import com.rikshawx.config.CorsOriginMatcher;
 import com.rikshawx.engine.GameBroadcaster;
 import jakarta.annotation.PreDestroy;
 import org.springframework.context.annotation.Bean;
@@ -18,9 +20,17 @@ public class SocketIOConfig implements GameBroadcaster {
     Configuration cfg = new Configuration();
     cfg.setHostname(props.getSocketHost());
     cfg.setPort(props.getSocketPort());
-    // Socket.IO origin check is coarse (single value). Keep * for LAN/dev;
-    // bets/admin room require JWT on connect. HTTP CORS is allowlisted separately.
+    // Library origin field is a single string; enforce the full CORS_ORIGINS
+    // allowlist from .env via AuthorizationListener (same patterns as HTTP).
     cfg.setOrigin("*");
+    String corsOrigins = props.getCorsOrigins();
+    cfg.setAuthorizationListener(data -> {
+      String origin = data.getHttpHeaders().get("Origin");
+      return CorsOriginMatcher.isAllowed(origin, corsOrigins)
+          ? AuthorizationResult.SUCCESSFUL_AUTHORIZATION
+          : AuthorizationResult.FAILED_AUTHORIZATION;
+    });
+    System.out.println("🔒 Socket.IO CORS from CORS_ORIGINS: " + CorsOriginMatcher.parse(corsOrigins));
     this.server = new SocketIOServer(cfg);
   }
 
